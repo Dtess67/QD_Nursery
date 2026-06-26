@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+qd_ledger.db
+*.db
+.idea/
