@@ -5,18 +5,19 @@ from .schema import (
 )
 from .evidence_policy import EvidencePolicy
 from .ledger import Ledger, EventType
+from .retriever import Retriever
 from .exceptions import (
     QDError,
     StructuralViolationError, FalsifierSkippedError, SchemaViolationError,
     KernelRuntimeError, ModelUnavailableError, ModelResponseError,
     EvidencePolicyViolation,
-    EmergencyStopError,  # backward compat alias
+    EmergencyStopError,
 )
 
 __version__ = "0.1.2"
 
 __all__ = [
-    "QDKernel",
+    "QDKernel", "Retriever",
     "TruthSign", "EpistemicReason", "EvidenceSource",
     "Evidence", "Claim", "AssessmentMessage", "KernelVerdict",
     "EvidencePolicy",
