@@ -31,12 +31,13 @@ class EvidenceSource(str, Enum):
 
 
 class Evidence(BaseModel):
-    id:           str             = Field(default_factory=lambda: str(uuid.uuid4()))
-    content:      str
-    source_url:   Optional[str]   = None
-    source_type:  EvidenceSource
+    id:             str            = Field(default_factory=lambda: str(uuid.uuid4()))
+    content:        str
+    source_url:     Optional[str]  = None
+    source_type:    EvidenceSource
     supports_claim: bool
-    confidence:   float           = Field(ge=0.0, le=1.0, default=0.5)
+    confidence:     float          = Field(ge=0.0, le=1.0, default=0.5)
+    source_tier:    Optional[int]  = None   # 1=authoritative .. 4=social/low-trust; None=not classified
 
 
 class Claim(BaseModel):

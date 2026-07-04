@@ -14,6 +14,7 @@ def _utcnow_str() -> str:
 
 class EventType(str, Enum):
     CLAIM_RECEIVED   = "CLAIM_RECEIVED"    # claim text + submitted confidence
+    SOURCE_FILTERED  = "SOURCE_FILTERED"   # retrieval excluded a low-tier source
     ASSESSOR_OUTPUT  = "ASSESSOR_OUTPUT"   # sign, reason, confidence, evidence count
     POLICY_PASS      = "POLICY_PASS"       # policy checked, no violation
     POLICY_VIOLATION = "POLICY_VIOLATION"  # policy fired, verdict downgraded

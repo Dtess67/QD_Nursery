@@ -5,24 +5,28 @@ from tavily import TavilyClient
 
 from .schema import Evidence, EvidenceSource
 from .exceptions import KernelRuntimeError
+from .source_quality import SourceTier, classify_domain, adjusted_confidence, TIER_LABELS
 
 
 class Retriever:
     """
     Evidence retriever using Tavily Search API.
 
-    Runs before the assessor. Fetches real external sources for the claim
-    and packages them as Evidence objects with source_type=EXTERNAL and
+    Runs before the assessor. Fetches real external sources for the claim,
+    classifies each by domain trust tier, filters out low-trust noise, and
+    packages the rest as Evidence objects with source_type=EXTERNAL and
     real source_urls.
 
-    This is why the Evidence Policy stops firing — the retriever provides
-    what the assessor previously couldn't: verifiable external sources.
-
-    The assessor's job changes: it no longer generates evidence from model
-    memory. It reasons over what the retriever provides.
+    Source Quality Policy v0.1:
+      TIER_4 (social media, forums) is excluded by default — not because
+      it's always wrong, but because it adds noise the assessor shouldn't
+      have to sort through. Raise max_tier to include it explicitly.
+      Every filtered source is returned in the fetch report, not silently
+      dropped — the kernel logs what was excluded and why.
     """
 
     DEFAULT_MAX_RESULTS = 5
+    FETCH_BUFFER        = 10   # raw results requested before tier filtering
 
     def __init__(self, api_key: str = None):
         key = api_key or os.environ.get("TAVILY_API_KEY")
@@ -33,36 +37,63 @@ class Retriever:
             )
         self.client = TavilyClient(api_key=key)
 
-    def fetch(self, claim_text: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[Evidence]:
+    def fetch(
+        self,
+        claim_text:  str,
+        max_results: int              = DEFAULT_MAX_RESULTS,
+        max_tier:    SourceTier        = SourceTier.TIER_3,
+    ) -> tuple[list[Evidence], list[dict]]:
         """
         Search for evidence relevant to the claim.
-        Returns Evidence objects — all EXTERNAL, all with real URLs.
-        supports_claim defaults to True; assessor reclassifies during reasoning.
+
+        Returns (evidence, filtered_report):
+          evidence        — accepted Evidence objects, tier-classified,
+                             confidence-adjusted, sorted best-first.
+          filtered_report — sources excluded for being below max_tier,
+                             with url + tier, for ledger transparency.
         """
         try:
             response = self.client.search(
                 query=claim_text,
-                max_results=max_results,
+                max_results=self.FETCH_BUFFER,
                 search_depth="basic",
             )
         except Exception as e:
             raise KernelRuntimeError(f"Tavily search failed: {e}") from e
 
-        evidence = []
+        accepted = []
+        filtered_report = []
+
         for r in response.get("results", []):
             url     = r.get("url", "").strip()
             content = r.get("content", "").strip()
-            score   = float(r.get("score", 0.5))
+            raw_score = float(r.get("score", 0.5))
 
             if not url or not content:
                 continue
 
-            evidence.append(Evidence(
+            tier = classify_domain(url)
+
+            if tier > max_tier:
+                filtered_report.append({
+                    "url":    url,
+                    "tier":   tier.value,
+                    "label":  TIER_LABELS[tier],
+                    "reason": "below max_tier threshold",
+                })
+                continue
+
+            accepted.append(Evidence(
                 content=content[:500],
                 source_url=url,
                 source_type=EvidenceSource.EXTERNAL,
                 supports_claim=True,   # assessor reclassifies — see kernel._assess()
-                confidence=min(score, 1.0),
+                confidence=adjusted_confidence(raw_score, tier),
+                source_tier=tier.value,
             ))
 
-        return evidence
+        # Sort best-first by adjusted confidence, then take top max_results
+        accepted.sort(key=lambda e: e.confidence, reverse=True)
+        accepted = accepted[:max_results]
+
+        return accepted, filtered_report

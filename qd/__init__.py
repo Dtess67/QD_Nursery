@@ -6,6 +6,7 @@ from .schema import (
 from .evidence_policy import EvidencePolicy
 from .ledger import Ledger, EventType
 from .retriever import Retriever
+from .source_quality import SourceTier
 from .exceptions import (
     QDError,
     StructuralViolationError, FalsifierSkippedError, SchemaViolationError,
@@ -14,10 +15,10 @@ from .exceptions import (
     EmergencyStopError,
 )
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 __all__ = [
-    "QDKernel", "Retriever",
+    "QDKernel", "Retriever", "SourceTier",
     "TruthSign", "EpistemicReason", "EvidenceSource",
     "Evidence", "Claim", "AssessmentMessage", "KernelVerdict",
     "EvidencePolicy",

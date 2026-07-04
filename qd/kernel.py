@@ -58,7 +58,8 @@ def _format_evidence_for_prompt(evidence: list[Evidence]) -> str:
         return "  [No evidence retrieved]"
     lines = []
     for i, e in enumerate(evidence, 1):
-        lines.append(f"  [{i}] {e.source_url}\n      {e.content[:300]}")
+        tier_note = f" (tier {e.source_tier})" if e.source_tier else ""
+        lines.append(f"  [{i}] {e.source_url}{tier_note}\n      {e.content[:300]}")
     return "\n".join(lines)
 
 
@@ -77,7 +78,7 @@ class QDKernel:
     Every epistemic event is recorded in the flight recorder ledger.
     """
 
-    VERSION = "0.1.2"
+    VERSION = "0.1.3"
 
     def __init__(
         self,
@@ -114,14 +115,21 @@ class QDKernel:
         try:
             # Step 1: Retrieve real sources
             print(f"  [KERNEL] Retrieving sources...")
-            retrieved = self.retriever.fetch(claim_text)
-            print(f"  [KERNEL] Retrieved {len(retrieved)} source(s)")
+            retrieved, filtered_out = self.retriever.fetch(claim_text)
+            print(
+                f"  [KERNEL] Retrieved {len(retrieved)} source(s), "
+                f"filtered {len(filtered_out)} low-tier"
+            )
 
             self._log(run_id, claim.id, EventType.ASSESSOR_OUTPUT, {
-                "stage":            "retrieval",
+                "stage":             "retrieval",
                 "sources_retrieved": len(retrieved),
-                "urls": [e.source_url for e in retrieved],
+                "urls":              [e.source_url for e in retrieved],
+                "tiers":             [e.source_tier for e in retrieved],
             })
+
+            for f in filtered_out:
+                self._log(run_id, claim.id, EventType.SOURCE_FILTERED, f)
 
             # Step 2: Assess — reason over retrieved evidence
             print(f"  [KERNEL] Assessing...")

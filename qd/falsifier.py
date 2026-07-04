@@ -4,7 +4,7 @@ from typing import Optional
 
 from .schema import Evidence, AssessmentMessage, KernelVerdict, TruthSign, EpistemicReason
 from .evidence_policy import EvidencePolicy
-from .exceptions import FalsifierSkippedError, EvidencePolicyViolation
+from .exceptions import FalsifierSkippedError, EvidencePolicyViolation, ModelResponseError
 from .ollama_client import OllamaClient
 
 
@@ -79,8 +79,8 @@ class Falsifier:
                 user_message=self._build_prompt(claim_text, assessment, proposed_verdict),
                 temperature=0.2,
             )
-        except ValueError as e:
-            # JSON parse failure — conservative default: reject
+        except (ModelResponseError, ValueError) as e:
+            # Model returned unparseable JSON — conservative: reject
             return KernelVerdict(
                 claim_id=proposed_verdict.claim_id,
                 sign=TruthSign.UNCERTAIN,
@@ -88,7 +88,7 @@ class Falsifier:
                 confidence=0.0,
                 evidence=proposed_verdict.evidence,
                 falsifier_approved=False,
-                falsifier_notes=f"Falsifier parse error: {str(e)[:200]}",
+                falsifier_notes=f"Falsifier ModelResponseError: {str(e)[:200]}",
             )
 
         approved               = bool(result.get("approved", False))
@@ -165,7 +165,8 @@ class Falsifier:
         evidence_lines = "\n".join(
             f"  [{i+1}] {'SUPPORTING' if e.supports_claim else 'OPPOSING'}: "
             f"{e.content[:300]} "
-            f"(source: {e.source_url or 'NONE'}, type: {e.source_type.value})"
+            f"(source: {e.source_url or 'NONE'}, type: {e.source_type.value}, "
+            f"tier: {e.source_tier or 'unclassified'})"
             for i, e in enumerate(assessment.evidence)
         ) or "  [no evidence provided]"
 
