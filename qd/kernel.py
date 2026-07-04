@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from .schema import (
@@ -18,39 +19,61 @@ from .exceptions import (
 )
 
 
-_ASSESSOR_PROMPT = """You are an epistemic assessor in the QD kernel.
+_HYPOTHESIS_PROMPT = """You are the Assessor in the QD kernel, running an elimination funnel.
 
-You are given a claim and a set of retrieved evidence from external sources.
-Your job: assess the claim based on the provided evidence only.
-Do NOT generate new evidence. Do NOT cite sources not in the list.
+You are NOT guessing an answer. Before seeing any evidence, your job is to lay
+out a WIDE BASE of plausible, competing explanations for whether the claim is
+true or false. Cast a broad net — include explanations you personally doubt.
+Later, evidence will eliminate the explanations it contradicts, and whatever
+survives determines the verdict. A narrow base defeats the whole method.
 
-For each piece of evidence, determine whether it supports or opposes the claim.
+Each explanation must take a side on the claim itself:
+  polarity = "supported"  → this explanation, if true, means the claim is TRUE
+  polarity = "refuted"    → this explanation, if true, means the claim is FALSE
 
-Return ONLY a JSON object with these exact fields:
+Aim for 3–6 explanations spanning BOTH polarities where that is at all plausible.
+
+Return ONLY a JSON object with this exact shape:
 
 {
-  "assessment": "your analysis of the claim based on the evidence",
-  "sign": 1 or 0 or -1,
-  "reason": "supported" | "uncertain" | "contested" | "refuted",
-  "confidence": 0.0 to 1.0,
-  "evidence_labels": [
-    {
-      "source_url": "exact URL from the evidence list",
-      "supports_claim": true or false,
-      "note": "one sentence on why this supports or opposes"
-    }
+  "explanations": [
+    {"statement": "a specific explanation of the claim's truth", "polarity": "supported" | "refuted"},
+    ...
   ]
 }
 
-Verdict rules:
-  sign=1,  reason="supported"  → evidence clearly supports the claim
-  sign=0,  reason="uncertain"  → insufficient evidence to decide (knowledge gap)
-  sign=0,  reason="contested"  → credible evidence exists on both sides
-  sign=-1, reason="refuted"    → evidence clearly refutes the claim
+Return ONLY the JSON object. No preamble."""
 
-If no relevant evidence was provided: sign=0, reason="uncertain", confidence=0.1
+
+_ELIMINATION_PROMPT = """You are the Assessor in the QD kernel, running an elimination funnel.
+
+You are given the claim, ONE piece of retrieved external evidence, and the
+explanations still in play. Your ONLY job for this evidence item is to decide
+which explanations it CONTRADICTS — i.e. which ones this evidence rules out.
+
+Rules:
+- Eliminate an explanation ONLY when the evidence genuinely contradicts it.
+- Do NOT eliminate an explanation just because the evidence is silent on it.
+- Judge only against THIS evidence item. Do not import outside knowledge.
+- Use the exact explanation ids given to you.
+
+Return ONLY a JSON object with this exact shape:
+
+{
+  "eliminated": ["id", ...],          // explanation ids this evidence contradicts (may be empty)
+  "supports_claim": true or false,    // does this evidence, on net, support the claim?
+  "note": "one sentence on what this evidence rules out and why"
+}
 
 Return ONLY the JSON object. No preamble."""
+
+
+@dataclass
+class _Explanation:
+    """One candidate explanation in the funnel base."""
+    id:        str
+    statement: str
+    polarity:  TruthSign   # SUPPORTED (claim true) or REFUTED (claim false)
 
 
 def _format_evidence_for_prompt(evidence: list[Evidence]) -> str:
@@ -233,74 +256,250 @@ class QDKernel:
         run_id:    str,
     ) -> AssessmentMessage:
         """
-        Assess the claim by reasoning over pre-retrieved evidence.
-        The assessor no longer generates evidence — it classifies and reasons.
+        Assess the claim with an elimination funnel — not a single-shot guess.
+
+          1. Generate a WIDE base of plausible, polarity-tagged explanations.
+          2. Use each evidence item to eliminate the explanations it contradicts.
+             Evidence narrows the candidate set; it does not vote on a pre-picked
+             answer.
+          3. Converge on the survivors:
+               exactly one survivor  → SUPPORTED / REFUTED (per its polarity)
+               more than one         → UNCERTAIN / CONTESTED (can't be separated)
+               none                  → UNCERTAIN / UNCERTAIN (base wiped out)
+
+        The assessor does not generate evidence — it reasons over the retrieved
+        sources only.
         """
-        user_message = (
-            f'Claim: "{claim.text}"\n\n'
-            f"Retrieved evidence ({len(retrieved)} sources):\n"
-            f"{_format_evidence_for_prompt(retrieved)}\n\n"
-            f"Assess the claim based on this evidence."
-        )
+        # No evidence → the funnel has nothing to narrow with. Knowledge gap.
+        if not retrieved:
+            return self._empty_assessment(
+                claim, run_id, "No evidence retrieved; funnel could not run."
+            )
 
-        result = self.ollama.complete_json(
-            system_prompt=_ASSESSOR_PROMPT,
-            user_message=user_message,
-            temperature=0.3,
-        )
+        # Step 1: wide base of competing explanations.
+        base = self._generate_explanations(claim)
+        if not base:
+            return self._empty_assessment(
+                claim, run_id, "Assessor produced no explanations; funnel could not run."
+            )
 
-        # Build evidence list from retrieved + assessor's classification
-        evidence_labels = {
-            item.get("source_url", ""): item
-            for item in result.get("evidence_labels", [])
-        }
-
-        evidence = []
+        # Step 2: each evidence item eliminates the explanations it contradicts.
+        eliminations: list[list[str]] = []
+        evidence:     list[Evidence]  = []
         for e in retrieved:
-            label = evidence_labels.get(e.source_url, {})
+            elim = self._eliminate_with_evidence(claim, e, base)
+            eliminations.append([str(i) for i in elim.get("eliminated", [])])
             evidence.append(Evidence(
                 content=e.content,
                 source_url=e.source_url,
                 source_type=EvidenceSource.EXTERNAL,
-                supports_claim=bool(label.get("supports_claim", True)),
+                supports_claim=bool(elim.get("supports_claim", True)),
                 confidence=e.confidence,
+                source_tier=e.source_tier,
             ))
 
-        # Parse sign and reason
-        raw_sign   = result.get("sign", 0)
-        raw_reason = result.get("reason", "uncertain")
+        # Step 3: run the funnel and converge.
+        survivors, trace = self._run_funnel(base, eliminations)
+        sign, reason     = self._funnel_outcome(survivors)
+        confidence       = self._funnel_confidence(base, survivors, sign)
 
-        try:
-            sign = TruthSign(int(raw_sign))
-        except (ValueError, TypeError):
-            sign = TruthSign.UNCERTAIN
-
-        try:
-            reason = EpistemicReason(str(raw_reason).lower())
-        except ValueError:
-            reason = EpistemicReason.UNCERTAIN
-
+        # Reconcile stays in the loop as a structural guarantee. The funnel
+        # produces matching sign/reason by construction, so this is normally a
+        # no-op — but the scar path is preserved unchanged.
         sign, reason, scar = self._reconcile(sign, reason)
-
         if scar:
             self._log(run_id, claim.id, EventType.RECONCILE_SCAR, scar)
 
+        assessment_text = self._summarize_funnel(base, survivors, trace)
+
         self._log(run_id, claim.id, EventType.ASSESSOR_OUTPUT, {
-            "sign":           sign.value,
-            "reason":         reason.value,
-            "confidence":     max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
-            "evidence_count": len(evidence),
-            "assessment":     str(result.get("assessment", ""))[:500],
+            "stage":                  "funnel",
+            "sign":                   sign.value,
+            "reason":                 reason.value,
+            "confidence":             confidence,
+            "evidence_count":         len(evidence),
+            "explanations_initial":   len(base),
+            "explanations_surviving": len(survivors),
+            "funnel_trace":           trace,
+            "assessment":             assessment_text[:500],
         })
 
         return AssessmentMessage(
             agent="assessor",
             claim_id=claim.id,
-            content=str(result.get("assessment", ""))[:1000],
+            content=assessment_text[:1000],
             proposed_sign=sign,
             proposed_reason=reason,
-            confidence=max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
+            confidence=confidence,
             evidence=evidence,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Funnel                                                               #
+    # ------------------------------------------------------------------ #
+
+    def _generate_explanations(self, claim: Claim) -> list[_Explanation]:
+        """LLM step 1 — cast a wide base of polarity-tagged explanations.
+
+        Ids (h1, h2, ...) are assigned here, kernel-side, so the elimination
+        step references a stable id space the model cannot corrupt.
+        """
+        result = self.ollama.complete_json(
+            system_prompt=_HYPOTHESIS_PROMPT,
+            user_message=(
+                f'Claim: "{claim.text}"\n\n'
+                f"Generate the wide base of competing explanations."
+            ),
+            temperature=0.4,
+        )
+
+        base: list[_Explanation] = []
+        for i, item in enumerate(result.get("explanations", []), 1):
+            pol = str(item.get("polarity", "")).strip().lower()
+            if pol == "supported":
+                polarity = TruthSign.SUPPORTED
+            elif pol == "refuted":
+                polarity = TruthSign.REFUTED
+            else:
+                continue  # skip malformed / neutral entries
+            base.append(_Explanation(
+                id=f"h{i}",
+                statement=str(item.get("statement", ""))[:300],
+                polarity=polarity,
+            ))
+        return base
+
+    def _eliminate_with_evidence(
+        self,
+        claim:    Claim,
+        evidence: Evidence,
+        base:     list[_Explanation],
+    ) -> dict:
+        """LLM step 2 — one evidence item vs. the explanation base.
+
+        Returns the raw model dict ({"eliminated": [...], "supports_claim": bool,
+        "note": str}). Narrowing itself is done in pure Python by _run_funnel.
+        """
+        candidates = "\n".join(
+            f"  [{h.id}] ({h.polarity.name}) {h.statement}" for h in base
+        )
+        user_message = (
+            f'Claim: "{claim.text}"\n\n'
+            f"Explanations still in play:\n{candidates}\n\n"
+            f"Evidence item:\n"
+            f"  source: {evidence.source_url or 'NONE'}\n"
+            f"  {evidence.content[:400]}\n\n"
+            f"Which explanations does THIS evidence contradict?"
+        )
+        return self.ollama.complete_json(
+            system_prompt=_ELIMINATION_PROMPT,
+            user_message=user_message,
+            temperature=0.2,
+        )
+
+    @staticmethod
+    def _run_funnel(
+        base:         list[_Explanation],
+        eliminations: list[list[str]],
+    ) -> tuple[list[_Explanation], list[dict]]:
+        """Pure funnel mechanics: narrow the base by applying each evidence
+        item's eliminations, in order.
+
+        Returns (survivors, trace). The trace records the surviving id set
+        after every evidence item — this is what makes the narrowing auditable
+        and proves the funnel is not a single-shot guess.
+        """
+        by_id = {h.id: h for h in base}
+        alive = [h.id for h in base]
+        trace = [{"stage": "base", "eliminated": [], "surviving": list(alive)}]
+
+        for idx, elim in enumerate(eliminations, 1):
+            # Only ids that are real AND still alive can be eliminated.
+            hit = [i for i in dict.fromkeys(elim) if i in by_id and i in alive]
+            alive = [i for i in alive if i not in hit]
+            trace.append({
+                "stage":     f"evidence_{idx}",
+                "eliminated": hit,
+                "surviving":  list(alive),
+            })
+
+        survivors = [by_id[i] for i in alive]
+        return survivors, trace
+
+    @staticmethod
+    def _funnel_outcome(
+        survivors: list[_Explanation],
+    ) -> tuple[TruthSign, EpistemicReason]:
+        """Map the surviving candidate set to a (sign, reason) verdict."""
+        if len(survivors) == 1:
+            h = survivors[0]
+            if h.polarity == TruthSign.SUPPORTED:
+                return TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
+            return TruthSign.REFUTED, EpistemicReason.REFUTED
+        if len(survivors) > 1:
+            # Evidence could not separate the survivors → genuine contest.
+            return TruthSign.UNCERTAIN, EpistemicReason.CONTESTED
+        # Base wiped out and nothing replaced it → knowledge gap.
+        return TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+
+    @staticmethod
+    def _funnel_confidence(
+        base:      list[_Explanation],
+        survivors: list[_Explanation],
+        sign:      TruthSign,
+    ) -> float:
+        """Confidence reflects how decisively the funnel converged."""
+        n = len(base)
+        if n == 0:
+            return 0.1
+        eliminated_frac = (n - len(survivors)) / n
+        if sign in (TruthSign.SUPPORTED, TruthSign.REFUTED):
+            # A single survivor out of a wide base is a decisive result.
+            return round(min(0.95, 0.55 + 0.40 * eliminated_frac), 2)
+        if len(survivors) == 0:
+            return 0.15   # nothing survived — honest low confidence
+        return 0.30       # contested — sources pull in different directions
+
+    @staticmethod
+    def _summarize_funnel(
+        base:      list[_Explanation],
+        survivors: list[_Explanation],
+        trace:     list[dict],
+    ) -> str:
+        surviving = "; ".join(f"[{h.id}] {h.statement}" for h in survivors) or "none"
+        return (
+            f"Elimination funnel: began with {len(base)} explanation(s), "
+            f"{len(survivors)} survived after {len(trace) - 1} evidence item(s). "
+            f"Surviving: {surviving}"
+        )
+
+    def _empty_assessment(
+        self,
+        claim:  Claim,
+        run_id: str,
+        note:   str,
+    ) -> AssessmentMessage:
+        """Knowledge-gap assessment when the funnel cannot run."""
+        sign, reason = TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+        self._log(run_id, claim.id, EventType.ASSESSOR_OUTPUT, {
+            "stage":                  "funnel",
+            "sign":                   sign.value,
+            "reason":                 reason.value,
+            "confidence":             0.1,
+            "evidence_count":         0,
+            "explanations_initial":   0,
+            "explanations_surviving": 0,
+            "funnel_trace":           [],
+            "assessment":             note,
+        })
+        return AssessmentMessage(
+            agent="assessor",
+            claim_id=claim.id,
+            content=note,
+            proposed_sign=sign,
+            proposed_reason=reason,
+            confidence=0.1,
+            evidence=[],
         )
 
     @staticmethod
