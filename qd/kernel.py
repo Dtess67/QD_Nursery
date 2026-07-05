@@ -284,11 +284,17 @@ class QDKernel:
             )
 
         # Step 2: each evidence item eliminates the explanations it contradicts.
+        # The candidate set narrows incrementally — every elimination call is
+        # shown ONLY the explanations still alive at that point, never the full
+        # original base. Judging fresh evidence against already-dead candidates
+        # is what collapsed real claims to 0 survivors / UNCERTAIN.
         eliminations: list[list[str]] = []
         evidence:     list[Evidence]  = []
+        alive:        list[_Explanation] = list(base)   # survivors so far
         for e in retrieved:
-            elim = self._eliminate_with_evidence(claim, e, base)
-            eliminations.append([str(i) for i in elim.get("eliminated", [])])
+            elim = self._eliminate_with_evidence(claim, e, alive)
+            hit  = [str(i) for i in elim.get("eliminated", [])]
+            eliminations.append(hit)
             evidence.append(Evidence(
                 content=e.content,
                 source_url=e.source_url,
@@ -297,11 +303,21 @@ class QDKernel:
                 confidence=e.confidence,
                 source_tier=e.source_tier,
             ))
+            # Narrow the live set before the NEXT evidence item sees it. Only
+            # ids that are still alive can be removed (the id-safety guard).
+            dead  = set(hit)
+            alive = [h for h in alive if h.id not in dead]
 
-        # Step 3: run the funnel and converge.
+        # Step 3: run the funnel and converge. _run_funnel replays the same
+        # eliminations over the base as the single source of truth for the
+        # trace; because each hit only names then-alive ids, it agrees with the
+        # incremental `alive` set above.
         survivors, trace = self._run_funnel(base, eliminations)
         sign, reason     = self._funnel_outcome(survivors)
-        confidence       = self._funnel_confidence(base, survivors, sign)
+        n_eliminating    = sum(1 for stage in trace[1:] if stage["eliminated"])
+        confidence       = self._funnel_confidence(
+            base, survivors, sign, len(retrieved), n_eliminating
+        )
 
         # Reconcile stays in the loop as a structural guarantee. The funnel
         # produces matching sign/reason by construction, so this is normally a
@@ -444,21 +460,43 @@ class QDKernel:
 
     @staticmethod
     def _funnel_confidence(
-        base:      list[_Explanation],
-        survivors: list[_Explanation],
-        sign:      TruthSign,
+        base:          list[_Explanation],
+        survivors:     list[_Explanation],
+        sign:          TruthSign,
+        n_evidence:    int = 0,
+        n_eliminating: int = 0,
     ) -> float:
-        """Confidence reflects how decisively the funnel converged."""
+        """Confidence reflects how decisively the funnel converged.
+
+        Every branch scales with real evidence — none returns a bare constant:
+          * single survivor → how much of the base the evidence ruled out
+          * multiple survivors (contested) → how sharply the base was narrowed
+            before ≥2 candidates proved inseparable
+          * zero survivors → how much of the evidence actually did the wiping;
+            one item nuking the whole base is weak signal, a gradual whittle-
+            down across many items is a more considered "nothing coheres".
+
+        n_evidence    — number of evidence items processed.
+        n_eliminating — number of those items that removed ≥1 candidate.
+        """
         n = len(base)
         if n == 0:
             return 0.1
         eliminated_frac = (n - len(survivors)) / n
+
+        # Single survivor out of a wide base → decisive result.
         if sign in (TruthSign.SUPPORTED, TruthSign.REFUTED):
-            # A single survivor out of a wide base is a decisive result.
             return round(min(0.95, 0.55 + 0.40 * eliminated_frac), 2)
-        if len(survivors) == 0:
-            return 0.15   # nothing survived — honest low confidence
-        return 0.30       # contested — sources pull in different directions
+
+        # Multiple survivors → contested. The more of the base the evidence
+        # eliminated while still leaving ≥2 standing, the sharper the contest.
+        if len(survivors) > 1:
+            return round(min(0.60, 0.20 + 0.40 * eliminated_frac), 2)
+
+        # Zero survivors → base wiped out. Confidence in the UNCERTAIN verdict
+        # scales with how spread-out the elimination work was across evidence.
+        spread = (n_eliminating / n_evidence) if n_evidence else 0.0
+        return round(min(0.40, 0.10 + 0.30 * spread), 2)
 
     @staticmethod
     def _summarize_funnel(

@@ -108,6 +108,50 @@ def test_run_funnel_ignores_unknown_and_already_eliminated_ids():
     assert trace[2]["eliminated"] == []       # already-dead id not re-counted
 
 
+def test_elimination_calls_see_only_surviving_candidates(tmp_path):
+    """Regression for bug #1: each elimination call must be shown ONLY the
+    candidates still alive at that point, never the full original base.
+
+    This inspects the candidate set passed *into* every elimination call — not
+    the final survivor count — because a stale, non-narrowing candidate list
+    produces the right end state in some cases while still being the bug.
+    """
+    # Base of 3: h1 supported, h2 refuted, h3 refuted (hypothesis call is faked).
+    kernel, _ = make_kernel(tmp_path, [
+        {"explanations": [
+            {"statement": "true",    "polarity": "supported"},
+            {"statement": "false A", "polarity": "refuted"},
+            {"statement": "false B", "polarity": "refuted"},
+        ]},
+    ])
+
+    # Intercept the elimination step and record the candidate ids it was handed.
+    seen_candidate_ids: list[list[str]] = []
+    scripted = [
+        {"eliminated": ["h2"], "supports_claim": True, "note": "evidence 1 kills h2"},
+        {"eliminated": [],     "supports_claim": True, "note": "evidence 2 sees fewer"},
+    ]
+    step = {"i": 0}
+
+    def spy_eliminate(claim, evidence, candidates):
+        seen_candidate_ids.append([h.id for h in candidates])
+        result = scripted[step["i"]]
+        step["i"] += 1
+        return result
+
+    kernel._eliminate_with_evidence = spy_eliminate
+
+    kernel._assess(Claim(text="X"), [ev("http://a", "c1"), ev("http://b", "c2")], "run-prog")
+
+    assert len(seen_candidate_ids) == 2
+    # First evidence item sees the full base.
+    assert seen_candidate_ids[0] == ["h1", "h2", "h3"]
+    # Second evidence item must see ONLY the survivors after h2 was eliminated.
+    # Under the bug (static base) this would be ["h1", "h2", "h3"] and fail.
+    assert seen_candidate_ids[1] == ["h1", "h3"]
+    assert "h2" not in seen_candidate_ids[1]
+
+
 def test_assess_end_to_end_narrows_across_two_evidence_items(tmp_path):
     """Full _assess path: a wide base of 3 shrinks to 1 as two evidence items land."""
     responses = [
