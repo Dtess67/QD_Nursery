@@ -316,7 +316,7 @@ class QDKernel:
         sign, reason     = self._funnel_outcome(survivors)
         n_eliminating    = sum(1 for stage in trace[1:] if stage["eliminated"])
         confidence       = self._funnel_confidence(
-            base, survivors, sign, len(retrieved), n_eliminating
+            base, survivors, sign, reason, len(retrieved), n_eliminating
         )
 
         # Reconcile stays in the loop as a structural guarantee. The funnel
@@ -446,23 +446,51 @@ class QDKernel:
     def _funnel_outcome(
         survivors: list[_Explanation],
     ) -> tuple[TruthSign, EpistemicReason]:
-        """Map the surviving candidate set to a (sign, reason) verdict."""
+        """Map the surviving candidate set to a (sign, reason) verdict.
+
+        Multiple survivors are NOT automatically a contest. Two hypotheses that
+        both conclude the claim is false (e.g. "round — satellite imagery" and
+        "round — eclipse shadow") corroborate each other; they don't conflict.
+        Polarity — the structured TruthSign already set on each _Explanation at
+        generation time — is read here to tell corroboration from contest.
+        """
+        # Base wiped out and nothing replaced it → knowledge gap.
+        if not survivors:
+            return TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+
+        # Single survivor → its own polarity (unchanged).
         if len(survivors) == 1:
             h = survivors[0]
             if h.polarity == TruthSign.SUPPORTED:
                 return TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
             return TruthSign.REFUTED, EpistemicReason.REFUTED
-        if len(survivors) > 1:
-            # Evidence could not separate the survivors → genuine contest.
-            return TruthSign.UNCERTAIN, EpistemicReason.CONTESTED
-        # Base wiped out and nothing replaced it → knowledge gap.
-        return TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+
+        # Multiple survivors — inspect polarity, do not merely count.
+        # Read only the structured field; never infer from wording/tone.
+        valid = {TruthSign.SUPPORTED, TruthSign.REFUTED}
+        polarities = [h.polarity for h in survivors]
+
+        # Any missing/neutral polarity → we cannot classify. Do not guess.
+        if any(p not in valid for p in polarities):
+            return TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+
+        distinct = set(polarities)
+        if len(distinct) == 1:
+            # All survivors agree via independent reasoning paths → corroboration.
+            shared = polarities[0]
+            if shared == TruthSign.SUPPORTED:
+                return TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
+            return TruthSign.REFUTED, EpistemicReason.REFUTED
+
+        # Survivors genuinely disagree (both polarities present) → contest.
+        return TruthSign.UNCERTAIN, EpistemicReason.CONTESTED
 
     @staticmethod
     def _funnel_confidence(
         base:          list[_Explanation],
         survivors:     list[_Explanation],
         sign:          TruthSign,
+        reason:        EpistemicReason = EpistemicReason.UNCERTAIN,
         n_evidence:    int = 0,
         n_eliminating: int = 0,
     ) -> float:
@@ -470,8 +498,11 @@ class QDKernel:
 
         Every branch scales with real evidence — none returns a bare constant:
           * single survivor → how much of the base the evidence ruled out
-          * multiple survivors (contested) → how sharply the base was narrowed
-            before ≥2 candidates proved inseparable
+          * multiple survivors, agreeing → corroboration; confidence rises with
+            each independent survivor that reaches the same verdict
+          * multiple survivors, contested → how sharply the base was narrowed
+            before ≥2 opposed candidates proved inseparable
+          * multiple survivors, unclear polarity → we can't classify; low
           * zero survivors → how much of the evidence actually did the wiping;
             one item nuking the whole base is weak signal, a gradual whittle-
             down across many items is a more considered "nothing coheres".
@@ -483,15 +514,30 @@ class QDKernel:
         if n == 0:
             return 0.1
         eliminated_frac = (n - len(survivors)) / n
+        n_survivors = len(survivors)
 
-        # Single survivor out of a wide base → decisive result.
+        # Decisive verdict (SUPPORTED / REFUTED).
         if sign in (TruthSign.SUPPORTED, TruthSign.REFUTED):
-            return round(min(0.95, 0.55 + 0.40 * eliminated_frac), 2)
+            # Single survivor out of a wide base → decisive result. (unchanged)
+            if n_survivors <= 1:
+                return round(min(0.95, 0.55 + 0.40 * eliminated_frac), 2)
+            # Multiple survivors agreeing on one polarity → corroboration.
+            # Each additional independent survivor that agrees lifts confidence,
+            # capped at a reasonable ceiling below the single-survivor max.
+            return round(
+                min(0.90, 0.55 + 0.12 * (n_survivors - 1) + 0.08 * eliminated_frac),
+                2,
+            )
 
-        # Multiple survivors → contested. The more of the base the evidence
-        # eliminated while still leaving ≥2 standing, the sharper the contest.
-        if len(survivors) > 1:
+        # Multiple survivors that genuinely disagree → contested. The more of
+        # the base eliminated while ≥2 opposed candidates remain, the sharper
+        # the contest. (unchanged formula)
+        if reason == EpistemicReason.CONTESTED:
             return round(min(0.60, 0.20 + 0.40 * eliminated_frac), 2)
+
+        # Multiple survivors of unclear/neutral polarity → cannot classify. Low.
+        if n_survivors > 1:
+            return round(min(0.30, 0.10 + 0.20 * eliminated_frac), 2)
 
         # Zero survivors → base wiped out. Confidence in the UNCERTAIN verdict
         # scales with how spread-out the elimination work was across evidence.

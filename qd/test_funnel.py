@@ -207,6 +207,108 @@ def test_outcome_no_survivors_uncertain():
     assert out == (TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN)
 
 
+# --- polarity-based routing of MULTIPLE survivors (bug: was count-only) ------
+#
+# All four tests below hold the survivor COUNT fixed at 2 and vary only the
+# polarity composition. Same count, four different outcomes → this proves the
+# routing is driven by polarity, not by counting survivors.
+
+def test_outcome_multiple_survivors_same_polarity_supported():
+    survivors = [exp("h1", TruthSign.SUPPORTED), exp("h2", TruthSign.SUPPORTED)]
+    assert QDKernel._funnel_outcome(survivors) == (
+        TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
+    )
+
+
+def test_outcome_multiple_survivors_same_polarity_refuted_earth_flat():
+    # Mirrors the live "The Earth is flat" case: two survivors, both REFUTED
+    # (round via satellite imagery / round via horizon curvature + eclipse).
+    # They corroborate each other → REFUTED, not CONTESTED.
+    survivors = [
+        exp("h3", TruthSign.REFUTED, "round — satellite imagery"),
+        exp("h5", TruthSign.REFUTED, "round — horizon curvature + eclipse shadow"),
+    ]
+    assert QDKernel._funnel_outcome(survivors) == (
+        TruthSign.REFUTED, EpistemicReason.REFUTED
+    )
+
+
+def test_outcome_multiple_survivors_mixed_polarity_is_contested():
+    survivors = [exp("h1", TruthSign.SUPPORTED), exp("h2", TruthSign.REFUTED)]
+    assert QDKernel._funnel_outcome(survivors) == (
+        TruthSign.UNCERTAIN, EpistemicReason.CONTESTED
+    )
+
+
+def test_outcome_multiple_survivors_unclear_polarity_is_uncertain():
+    # A neutral/unclassified polarity among the survivors → cannot classify.
+    survivors = [exp("h1", TruthSign.UNCERTAIN), exp("h2", TruthSign.SUPPORTED)]
+    assert QDKernel._funnel_outcome(survivors) == (
+        TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+    )
+
+
+def test_outcome_multiple_survivors_all_neutral_is_uncertain():
+    survivors = [exp("h1", TruthSign.UNCERTAIN), exp("h2", TruthSign.UNCERTAIN)]
+    assert QDKernel._funnel_outcome(survivors) == (
+        TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN
+    )
+
+
+def test_confidence_rises_with_more_agreeing_survivors():
+    base = [exp(f"h{i}", TruthSign.REFUTED) for i in range(1, 6)]  # 5 hypotheses
+    c2 = QDKernel._funnel_confidence(
+        base, base[:2], TruthSign.REFUTED, EpistemicReason.REFUTED,
+        n_evidence=4, n_eliminating=3,
+    )
+    c3 = QDKernel._funnel_confidence(
+        base, base[:3], TruthSign.REFUTED, EpistemicReason.REFUTED,
+        n_evidence=4, n_eliminating=3,
+    )
+    # More independent survivors agreeing → higher corroboration confidence.
+    assert c3 > c2
+    # It is a real, non-uncertain confidence — well above the old contested 0.30.
+    assert c2 > 0.30
+    assert 0.0 <= c2 <= 0.90 and 0.0 <= c3 <= 0.90
+
+
+def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
+    """End-to-end mirror of the live bug: 5 hypotheses narrow to 2 survivors,
+    both REFUTED. Must resolve to REFUTED (corroboration), not CONTESTED."""
+    responses = [
+        {"explanations": [
+            {"statement": "flat — no curvature visible",  "polarity": "supported"},
+            {"statement": "flat — it's a conspiracy",      "polarity": "supported"},
+            {"statement": "round — satellite imagery",     "polarity": "refuted"},
+            {"statement": "flat — local horizon is level", "polarity": "supported"},
+            {"statement": "round — horizon curvature + eclipse shadow",
+             "polarity": "refuted"},
+        ]},
+        # evidence 1 eliminates the three 'flat' (supported) hypotheses
+        {"eliminated": ["h1", "h2", "h4"], "supports_claim": False,
+         "note": "imagery shows curvature"},
+        # evidence 2 sees only h3, h5 (both refuted) and rules out neither
+        {"eliminated": [], "supports_claim": False,
+         "note": "consistent with a round earth"},
+    ]
+    kernel, ledger = make_kernel(tmp_path, responses)
+    a = kernel._assess(
+        Claim(text="The Earth is flat."),
+        [ev("http://sat", "c1"), ev("http://ecl", "c2")],
+        "run-earth",
+    )
+
+    assert a.proposed_sign == TruthSign.REFUTED
+    assert a.proposed_reason == EpistemicReason.REFUTED
+    # Two independent survivors agreeing → corroboration confidence, above the
+    # mistaken CONTESTED 0.44 the live run produced before this fix.
+    assert a.confidence > 0.44
+    # Confirm it really was multiple survivors, not a single-survivor collapse.
+    events = ledger.get_run("run-earth")
+    ao = [e for e in events if e["event_type"] == "ASSESSOR_OUTPUT"][-1]
+    assert ao["payload"]["explanations_surviving"] == 2
+
+
 @pytest.mark.parametrize(
     "responses, retrieved, expected_sign, expected_reason",
     [
