@@ -20,6 +20,7 @@ class EventType(str, Enum):
     POLICY_VIOLATION = "POLICY_VIOLATION"  # policy fired, verdict downgraded
     FALSIFIER_OUTPUT = "FALSIFIER_OUTPUT"  # approved/rejected, notes, confidence
     RECONCILE_SCAR   = "RECONCILE_SCAR"   # sign/reason mismatch was silently corrected
+    EVIDENCE_LABEL_SCAR = "EVIDENCE_LABEL_SCAR"  # endorsement label missing/malformed → defaulted not-endorsing
     VERDICT_ISSUED   = "VERDICT_ISSUED"    # final triple
     EMERGENCY_STOP   = "EMERGENCY_STOP"   # kernel halted
 

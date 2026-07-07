@@ -33,16 +33,16 @@ class EvidencePolicy:
         Raises EvidencePolicyViolation on failure.
         """
         if sign == TruthSign.SUPPORTED:
-            EvidencePolicy._validate_side(evidence, supports_claim=True, label="supporting")
+            EvidencePolicy._validate_side(evidence, source_endorses_claim=True, label="supporting")
 
         elif sign == TruthSign.REFUTED:
-            EvidencePolicy._validate_side(evidence, supports_claim=False, label="refuting")
+            EvidencePolicy._validate_side(evidence, source_endorses_claim=False, label="refuting")
 
         elif sign == TruthSign.UNCERTAIN and reason == EpistemicReason.CONTESTED:
             # Contested: credible sources actively disagree.
             # Both sides must have external sources — otherwise it's not a real contest.
-            EvidencePolicy._validate_side(evidence, supports_claim=True,  label="supporting")
-            EvidencePolicy._validate_side(evidence, supports_claim=False, label="refuting")
+            EvidencePolicy._validate_side(evidence, source_endorses_claim=True,  label="supporting")
+            EvidencePolicy._validate_side(evidence, source_endorses_claim=False, label="refuting")
 
         # UNCERTAIN (not contested) — no external evidence required.
         # The kernel is saying "we don't know." That's not a claim. No source required.
@@ -66,12 +66,12 @@ class EvidencePolicy:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _validate_side(evidence: list[Evidence], supports_claim: bool, label: str) -> None:
+    def _validate_side(evidence: list[Evidence], source_endorses_claim: bool, label: str) -> None:
         """
         Validate one side (supporting or refuting).
         Checks: side exists, no model memory, no missing URLs.
         """
-        side = [e for e in evidence if e.supports_claim == supports_claim]
+        side = [e for e in evidence if e.source_endorses_claim == source_endorses_claim]
 
         if not side:
             raise EvidencePolicyViolation(

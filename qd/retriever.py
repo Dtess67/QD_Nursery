@@ -87,7 +87,7 @@ class Retriever:
                 content=content[:500],
                 source_url=url,
                 source_type=EvidenceSource.EXTERNAL,
-                supports_claim=True,   # assessor reclassifies — see kernel._assess()
+                source_endorses_claim=True,   # assessor reclassifies — see kernel._assess()
                 confidence=adjusted_confidence(raw_score, tier),
                 source_tier=tier.value,
             ))

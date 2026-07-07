@@ -57,11 +57,30 @@ Rules:
 - Judge only against THIS evidence item. Do not import outside knowledge.
 - Use the exact explanation ids given to you.
 
+Also decide whether the source ENDORSES the claim — a strict test, not
+"is it about the topic":
+
+  source_endorses_claim: true ONLY if the source itself endorses or
+  concludes that the claim is true.
+
+  false if the source:
+   - denies the claim,
+   - argues against the claim,
+   - fact-checks the claim as false,
+   - quotes someone else making the claim without endorsing it,
+   - explains why people believe the claim,
+   - satirizes the claim,
+   - discusses the claim as a belief, rumor, theory, controversy, or
+     misinformation.
+
+  Do NOT mark true merely because the evidence mentions the claim,
+  describes believers, or contains quoted language asserting the claim.
+
 Return ONLY a JSON object with this exact shape:
 
 {
-  "eliminated": ["id", ...],          // explanation ids this evidence contradicts (may be empty)
-  "supports_claim": true or false,    // does this evidence, on net, support the claim?
+  "eliminated": ["id", ...],             // explanation ids this evidence contradicts (may be empty)
+  "source_endorses_claim": true or false, // strict test above — endorsement, not topical relevance
   "note": "one sentence on what this evidence rules out and why"
 }
 
@@ -295,11 +314,26 @@ class QDKernel:
             elim = self._eliminate_with_evidence(claim, e, alive)
             hit  = [str(i) for i in elim.get("eliminated", [])]
             eliminations.append(hit)
+
+            # Strict endorsement read: only an explicit JSON boolean counts.
+            # Missing/malformed → NOT endorsement (absence of a clear
+            # endorsement is not endorsement) AND a visible ledger scar, so
+            # "the model said no" never looks like "the model returned garbage".
+            endorses, malformed = self._read_endorsement(elim)
+            if malformed:
+                self._log(run_id, claim.id, EventType.EVIDENCE_LABEL_SCAR, {
+                    "source_url": e.source_url,
+                    "raw_label":  repr(elim.get("source_endorses_claim"))[:200],
+                    "defaulted_to": "not_endorsing",
+                    "note": "Endorsement label missing or non-boolean; "
+                            "defaulted to NOT endorsing the claim.",
+                })
+
             evidence.append(Evidence(
                 content=e.content,
                 source_url=e.source_url,
                 source_type=EvidenceSource.EXTERNAL,
-                supports_claim=bool(elim.get("supports_claim", True)),
+                source_endorses_claim=endorses,
                 confidence=e.confidence,
                 source_tier=e.source_tier,
             ))
@@ -393,8 +427,9 @@ class QDKernel:
     ) -> dict:
         """LLM step 2 — one evidence item vs. the explanation base.
 
-        Returns the raw model dict ({"eliminated": [...], "supports_claim": bool,
-        "note": str}). Narrowing itself is done in pure Python by _run_funnel.
+        Returns the raw model dict ({"eliminated": [...],
+        "source_endorses_claim": bool, "note": str}). Narrowing itself is done
+        in pure Python by _run_funnel.
         """
         candidates = "\n".join(
             f"  [{h.id}] ({h.polarity.name}) {h.statement}" for h in base
@@ -412,6 +447,23 @@ class QDKernel:
             user_message=user_message,
             temperature=0.2,
         )
+
+    @staticmethod
+    def _read_endorsement(elim: dict) -> tuple[bool, bool]:
+        """Read the source-endorsement label from an elimination result.
+
+        Returns (endorses, malformed). Only an explicit JSON boolean is
+        accepted — anything else (missing key, null, string "true", a number)
+        is NOT endorsement and is flagged malformed. This is deliberately
+        strict: for a truth-seeking kernel, absence of a clear endorsement must
+        never silently become evidence *for* the claim.
+        """
+        raw = elim.get("source_endorses_claim")
+        if raw is True:
+            return True, False
+        if raw is False:
+            return False, False
+        return False, True
 
     @staticmethod
     def _run_funnel(

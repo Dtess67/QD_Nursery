@@ -163,7 +163,7 @@ class Falsifier:
         proposed:   KernelVerdict,
     ) -> str:
         evidence_lines = "\n".join(
-            f"  [{i+1}] {'SUPPORTING' if e.supports_claim else 'OPPOSING'}: "
+            f"  [{i+1}] {'SUPPORTING' if e.source_endorses_claim else 'OPPOSING'}: "
             f"{e.content[:300]} "
             f"(source: {e.source_url or 'NONE'}, type: {e.source_type.value}, "
             f"tier: {e.source_tier or 'unclassified'})"
