@@ -315,8 +315,11 @@ completeness:
   may plausibly be present" from sensor data — architecture not yet
   designed, only the requirement that it must persist belief across
   observations.
-- Whether the elimination-funnel Assessor rework has been built in code
-  yet, or remains a confirmed-but-unbuilt design.
+- Live confirmation of the built elimination-funnel Assessor remains open.
+  The Assessor rework is implemented in `qd/kernel.py` and mechanically
+  covered by deterministic pytest tests using mocked model responses. A
+  live Qwen + Tavily run has not yet been completed, so real-model/
+  retrieval behavior remains unratified.
 - Full specification of Rover's physical self-model, sensor fusion, and
   continuous self-model — acknowledged by Q as intentionally
   unhardened while understanding develops.
