@@ -53,3 +53,24 @@ were confirmed, not decided.**
   `test_run_funnel_ignores_unknown_and_already_eliminated_ids`. Present in
   code and mechanically tested — same deterministic scope as the entry
   above; not a live-run claim.
+- Endorsement mislabeling of satire is caused by context contamination, not
+  truncation or model incapacity — established by targeted live diagnostics.
+  On "The Earth is flat," the Guardian satire source was labeled ENDORSES 3/3
+  inside the elimination call, but does-NOT-endorse 3/3 when endorsement was
+  asked against a neutral true/false frame, and does-NOT-endorse at every
+  content length (400/800/1500/full). Cause: the elimination call's
+  believer-voiced SUPPORTED explanations pull the model toward reading
+  lexical alignment as endorsement. Confirmed by the model's own stable notes
+  ("supports the flat Earth claim, aligning with h1, h2, h3"). Diagnostic-level
+  result (mocked-free, real Qwen + Tavily); the diagnostic scripts are
+  standalone, not yet reflected in kernel code.
+- Reordering the endorsement question BEFORE elimination (endorsement asked
+  first, explanation base still in context) survives a hostile SUPPORTED-heavy
+  base: 10/10 does-NOT-endorse against a fixed, fully-alive, believer-voiced
+  base built to reproduce the original failure condition. Isolates ordering
+  from base-narrowing (the base could not narrow away — it was frozen). This
+  establishes the reorder cure at the diagnostic level only; it is NOT yet
+  implemented in `qd/kernel.py`, and the live end-to-end kernel run on the
+  committed change is still owed before this is a kernel-level established
+  result. Separate clean-room call (Test 1) also passed 6/6 and is retained
+  as documented fallback.

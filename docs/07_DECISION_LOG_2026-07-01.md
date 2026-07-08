@@ -177,3 +177,32 @@ as the third party. Separately: the evidence-endorsement fix (found live —
 a satirical flat-earth source mislabeled as endorsing) is stashed WIP,
 deterministically passing (40 tests) but live-run still owed — tracked as
 the next job, not part of this reconciliation.
+
+---
+
+**Decision:** Endorsement-classification live failure diagnosed and cure
+chosen by experiment. Original failure was context contamination from the
+explanation base — the model confused lexical/thematic alignment with a
+SUPPORTED hypothesis for source endorsement. Truncation and general satire
+incapacity were falsified by targeted diagnostics.
+**Reason:** The committed endorsement fix (`d4dc0d3`) was deterministically
+sound but its live goal — stop a satirical flat-earth source (Guardian) being
+mislabeled as endorsing — failed 3/3 on the live model. Targeted diagnostics
+falsified two hypotheses (truncation: correct at 400/800/1500/full; general
+satire-blindness: correct 3/3 against a neutral true/false frame) and isolated
+the real cause 3/3: endorsement is asked inside the elimination call, whose
+believer-voiced SUPPORTED explanations pull the model toward "aligns with
+hypothesis" = "source endorses." Claude and Q converged on this independently.
+**Consequence:** Two cures tested live. Test 1 (separate clean-room endorsement
+call, no base in context) passed 6/6 — mechanically airtight. Test 2 (single
+call, endorsement asked first, base still in context) passed 4/4 but with an
+unresolved confound (3/4 passes had the sympathetic base already narrowed away).
+Per Q's ruling, a hostile-confound experiment was run: Guardian judged against
+a fixed, fully-alive, believer-voiced SUPPORTED-heavy base, endorsement-first,
+10 runs. **Result: 10/10 does-NOT-endorse.** Ordering alone immunizes the read
+even with the hostile base fully in context. Per Q's pre-committed decision
+rule: implement the reordered one-call solution; keep Test 1 as documented
+fallback if live scars recur. Kernel not yet edited — implementation is the
+next commit, reviewed before it touches `kernel.py`. Follow-on hygiene (per Q,
+NOT the main cure): neutralize believer-voice in SUPPORTED explanation phrasing
+— its own separate commit, plausible hypotheses not advocacy copy.
