@@ -112,7 +112,7 @@ def test_verdict_payload_hashes_evidence_urls_independent_of_order():
     assert left["evidence_url_hash"] == right["evidence_url_hash"]
 
 
-def test_summary_preserves_variance_and_errors():
+def test_summary_preserves_assessor_final_variance_and_errors():
     records = [
         {
             "case_id": "case-a",
@@ -120,6 +120,14 @@ def test_summary_preserves_variance_and_errors():
             "dimension": "simple",
             "pair_id": None,
             "status": "completed",
+            "assessor_outcome": {
+                "sign": 1,
+                "reason": "supported",
+                "confidence": 0.9,
+                "explanations_initial": 5,
+                "explanations_surviving": 5,
+                "funnel_trace_hash": "trace-a",
+            },
             "verdict": {
                 "sign": 1,
                 "reason": "supported",
@@ -134,6 +142,14 @@ def test_summary_preserves_variance_and_errors():
             "dimension": "simple",
             "pair_id": None,
             "status": "completed",
+            "assessor_outcome": {
+                "sign": -1,
+                "reason": "refuted",
+                "confidence": 0.7,
+                "explanations_initial": 5,
+                "explanations_surviving": 1,
+                "funnel_trace_hash": "trace-b",
+            },
             "verdict": {
                 "sign": 0,
                 "reason": "uncertain",
@@ -159,6 +175,7 @@ def test_summary_preserves_variance_and_errors():
     assert case["attempted"] == 3
     assert case["completed"] == 2
     assert case["errors"] == 1
-    assert len(case["distinct_outcomes"]) == 2
+    assert len(case["distinct_final_outcomes"]) == 2
+    assert len(case["distinct_assessor_outcomes"]) == 2
     assert case["distinct_evidence_sets"] == 2
     assert "truth certification" in summary_markdown(summary)
