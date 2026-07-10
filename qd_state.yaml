@@ -26,15 +26,33 @@ verification:
     note: Funnel mechanics are deterministically tested; current Qwen plus Tavily end-to-end behavior is not yet established.
 
 merged_capabilities:
-  - ternary verdict triple: sign, epistemic reason, confidence
-  - structurally required Falsifier gate
-  - strict Falsifier response validation and decision-confidence semantics
-  - symmetric Evidence Policy v0.2 at the policy layer
-  - append-only SQLite flight-recorder ledger
-  - Tavily retrieval with domain-tier filtering
-  - elimination-funnel Assessor mechanics
-  - reconciliation and malformed-label scars
-  - run-comparison and endorsement diagnostic tools
+  - id: ternary_verdict
+    status: merged
+    statement: Every verdict carries sign, epistemic reason, and confidence.
+  - id: required_falsifier
+    status: merged
+    statement: The Falsifier gate is structurally required.
+  - id: strict_falsifier_contract
+    status: merged
+    statement: Falsifier output uses strict validation and decision-confidence semantics.
+  - id: evidence_policy_v0_2
+    status: merged
+    statement: Evidence Policy is symmetric at the policy layer.
+  - id: append_only_ledger
+    status: merged
+    statement: The SQLite flight-recorder ledger is append-only.
+  - id: retrieval_and_tiering
+    status: merged
+    statement: Tavily retrieval applies domain-tier classification and filtering.
+  - id: funnel_assessor_mechanics
+    status: merged
+    statement: The Assessor generates a polarity-tagged base and narrows it across evidence.
+  - id: visible_scars
+    status: merged
+    statement: Reconciliation and malformed-label corrections are ledgered as scars.
+  - id: diagnostics
+    status: merged
+    statement: Run-comparison and endorsement diagnostic tools are present.
 
 recent_change:
   pull_request: 1
@@ -47,29 +65,39 @@ known_failures_and_unearned_claims:
     statement: source_endorses_claim compresses REFUTES, NEUTRAL, satire, quotation, and malformed output into false.
   - id: funnel_closed_world
     status: open
-    statement: survivor polarity can author a decisive verdict even though the generated hypothesis base is not exhaustive.
+    statement: Survivor polarity can author a decisive verdict even though the generated hypothesis base is not exhaustive.
   - id: confidence_inversion
     status: open
-    statement: same-polarity survivors can receive higher confidence when evidence eliminates nothing than a strongly narrowed funnel receives.
+    statement: Same-polarity survivors can receive higher confidence when evidence eliminates nothing than a strongly narrowed funnel receives.
   - id: source_and_hypothesis_independence
     status: open
-    statement: repeated sources and same-call hypothesis paraphrases are not yet collapsed into independent families.
+    statement: Repeated sources and same-call hypothesis paraphrases are not yet collapsed into independent families.
   - id: funnel_path_dependence
     status: unmeasured
-    statement: verdict stability under permutation of the same evidence set has not been tested.
+    statement: Verdict stability under permutation of the same evidence set has not been tested.
   - id: ledger_replay_completeness
     status: open
-    statement: ordinary run events do not yet preserve every raw prompt, model output, source stance, model version, temperature, and code commit needed for complete replay.
+    statement: Ordinary run events do not yet preserve every raw prompt, model output, source stance, model version, temperature, and code commit needed for complete replay.
   - id: retrieval_variance
     status: observed
-    statement: identical claims can receive materially different retrieved source sets; disclosure and stability handling are not yet resolved.
+    statement: Identical claims can receive materially different retrieved source sets; disclosure and stability handling are not yet resolved.
 
 ratified_direction_not_yet_built:
-  - four-state source relation: SUPPORTS, REFUTES, NEUTRAL, UNCLEAR
-  - clean-room source-relation classification separated from hypothesis elimination
-  - dual-key decisive verdict requiring source-family evidence and consistent funnel convergence
-  - ledgered disagreement between stance and funnel axes
-  - confidence redesign based on evidence work and demonstrated independence
+  - id: four_state_source_relation
+    status: planned
+    statement: Replace the Boolean relation with SUPPORTS, REFUTES, NEUTRAL, and UNCLEAR.
+  - id: clean_room_relation_classifier
+    status: planned
+    statement: Classify source relation separately from hypothesis elimination.
+  - id: dual_key_verdict
+    status: planned
+    statement: Require source-family evidence and consistent funnel convergence for a decisive verdict.
+  - id: axis_disagreement_scar
+    status: planned
+    statement: Ledger disagreement between source-relation and funnel axes instead of silently resolving it.
+  - id: confidence_redesign
+    status: planned
+    statement: Base confidence on evidence work and demonstrated independence rather than raw survivor count.
 
 next_gate:
   id: baseline_benchmark_current_kernel
