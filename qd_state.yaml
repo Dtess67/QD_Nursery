@@ -1,0 +1,103 @@
+schema_version: 1
+project:
+  name: QD_Nursery
+  repository: Dtess67/QD_Nursery
+  phase: pre-alpha epistemic research system
+  canonical_state_file: qd_state.yaml
+
+state_as_of:
+  date: 2026-07-10
+  verified_against_commit: 9e80f28c4079f5f5ce64a30ced237ef36a532009
+  verified_branch: main
+  verification_environment: Windows, local repository, Python via py launcher
+
+verification:
+  deterministic_suite:
+    command: py -m pytest -q
+    result: pass
+    passed: 49
+    failed: 0
+    duration_seconds: 11.02
+    verified_by: Darrell Tessman
+  live_kernel:
+    command: py test_kernel.py
+    current_funnel_status: pending_baseline_run
+    last_established_live_runs: pre-funnel, 2026-07-01
+    note: Funnel mechanics are deterministically tested; current Qwen plus Tavily end-to-end behavior is not yet established.
+
+merged_capabilities:
+  - ternary verdict triple: sign, epistemic reason, confidence
+  - structurally required Falsifier gate
+  - strict Falsifier response validation and decision-confidence semantics
+  - symmetric Evidence Policy v0.2 at the policy layer
+  - append-only SQLite flight-recorder ledger
+  - Tavily retrieval with domain-tier filtering
+  - elimination-funnel Assessor mechanics
+  - reconciliation and malformed-label scars
+  - run-comparison and endorsement diagnostic tools
+
+recent_change:
+  pull_request: 1
+  merge_commit: 9e80f28c4079f5f5ce64a30ced237ef36a532009
+  result: Falsifier no longer accepts string booleans through Python truthiness; rejection confidence is no longer semantically inverted.
+
+known_failures_and_unearned_claims:
+  - id: evidence_relation_boolean
+    status: open
+    statement: source_endorses_claim compresses REFUTES, NEUTRAL, satire, quotation, and malformed output into false.
+  - id: funnel_closed_world
+    status: open
+    statement: survivor polarity can author a decisive verdict even though the generated hypothesis base is not exhaustive.
+  - id: confidence_inversion
+    status: open
+    statement: same-polarity survivors can receive higher confidence when evidence eliminates nothing than a strongly narrowed funnel receives.
+  - id: source_and_hypothesis_independence
+    status: open
+    statement: repeated sources and same-call hypothesis paraphrases are not yet collapsed into independent families.
+  - id: funnel_path_dependence
+    status: unmeasured
+    statement: verdict stability under permutation of the same evidence set has not been tested.
+  - id: ledger_replay_completeness
+    status: open
+    statement: ordinary run events do not yet preserve every raw prompt, model output, source stance, model version, temperature, and code commit needed for complete replay.
+  - id: retrieval_variance
+    status: observed
+    statement: identical claims can receive materially different retrieved source sets; disclosure and stability handling are not yet resolved.
+
+ratified_direction_not_yet_built:
+  - four-state source relation: SUPPORTS, REFUTES, NEUTRAL, UNCLEAR
+  - clean-room source-relation classification separated from hypothesis elimination
+  - dual-key decisive verdict requiring source-family evidence and consistent funnel convergence
+  - ledgered disagreement between stance and funnel axes
+  - confidence redesign based on evidence work and demonstrated independence
+
+next_gate:
+  id: baseline_benchmark_current_kernel
+  purpose: Record current behavior before epistemic rearchitecture so later changes can be compared against a real baseline.
+  required_dimensions:
+    - simple supported fact
+    - simple false claim
+    - satire
+    - quotation without endorsement
+    - neutral reporting
+    - genuine contested claim
+    - duplicate source families
+    - loaded claim wording
+    - outdated evidence
+    - compound claim
+    - shuffle stability of an identical evidence set
+  rule: Do not interpret expected failures as regressions; this run exists to document the current machine before surgery.
+
+build_freeze:
+  active: true
+  blocked_until_next_gate:
+    - idle recombination
+    - minority live-claim lane
+    - additional cognitive organs
+    - rover cognition integration
+  allowed_work:
+    - state and reproducibility repair
+    - baseline benchmark instrumentation
+    - fixes required to make benchmark output trustworthy
+
+maintenance_rule: Update this file whenever merged behavior, deterministic test results, live validation status, known failures, or the next experimental gate changes. Narrative documents must not contradict this file; disagreement is resolved by verification and then logged, never silently edited.
