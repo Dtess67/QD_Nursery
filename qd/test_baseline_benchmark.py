@@ -210,4 +210,4 @@ def test_summary_preserves_assessor_final_variance_and_errors():
     assert len(case["distinct_final_outcomes"]) == 2
     assert len(case["distinct_assessor_outcomes"]) == 2
     assert case["distinct_evidence_sets"] == 2
-    assert "truth certification" in summary_markdown(summary)
+    assert "does not certify correctness" in summary_markdown(summary)
