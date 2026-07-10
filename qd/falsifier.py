@@ -1,11 +1,35 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal
 
-from .schema import Evidence, AssessmentMessage, KernelVerdict, TruthSign, EpistemicReason
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from .schema import AssessmentMessage, KernelVerdict, TruthSign, EpistemicReason
 from .evidence_policy import EvidencePolicy
 from .exceptions import FalsifierSkippedError, EvidencePolicyViolation, ModelResponseError
 from .ollama_client import OllamaClient
+
+
+class _FalsifierReview(BaseModel):
+    """Strict response contract for the constitutional approval gate.
+
+    Strict mode is intentional: JSON strings such as ``"false"`` and
+    ``"0.9"`` must never be coerced into valid gate decisions.
+    """
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    approved: bool
+    challenge: str
+    confidence_in_decision: float = Field(ge=0.0, le=1.0)
+    rejection_reason: Literal[
+        "insufficient_evidence",
+        "source_laundering",
+        "circular_sources",
+        "active_disagreement",
+        "other",
+    ]
+    notes: str = ""
 
 
 _SYSTEM_PROMPT = """You are the Falsifier in the QD epistemic kernel.
@@ -23,14 +47,15 @@ Return ONLY a JSON object with these exact fields:
 {
   "approved": true or false,
   "challenge": "your adversarial challenge — required even if you approve",
-  "confidence_in_approval": 0.0 to 1.0,
+  "confidence_in_decision": 0.0 to 1.0,
   "rejection_reason": "insufficient_evidence" | "source_laundering" | "circular_sources" | "active_disagreement" | "other",
   "notes": "additional concerns"
 }
 
 Rules:
 - You are not a rubber stamp
-- Low-confidence approval is honest — use it
+- confidence_in_decision means confidence in the decision you actually returned:
+  confidence in approval when approved=true; confidence in rejection when approved=false
 - Model memory is not evidence, yours or the assessor's
 - Return ONLY the JSON object"""
 
@@ -79,8 +104,9 @@ class Falsifier:
                 user_message=self._build_prompt(claim_text, assessment, proposed_verdict),
                 temperature=0.2,
             )
-        except (ModelResponseError, ValueError) as e:
-            # Model returned unparseable JSON — conservative: reject
+            review = _FalsifierReview.model_validate(result)
+        except (ModelResponseError, ValidationError, ValueError, TypeError) as e:
+            # Malformed output at the final gate is conservative rejection.
             return KernelVerdict(
                 claim_id=proposed_verdict.claim_id,
                 sign=TruthSign.UNCERTAIN,
@@ -91,41 +117,39 @@ class Falsifier:
                 falsifier_notes=f"Falsifier ModelResponseError: {str(e)[:200]}",
             )
 
-        approved               = bool(result.get("approved", False))
-        challenge              = str(result.get("challenge", "none"))
-        confidence_in_approval = float(result.get("confidence_in_approval", 0.5))
-        rejection_reason       = str(result.get("rejection_reason", "other"))
-        notes                  = str(result.get("notes", ""))
+        falsifier_notes = f"Challenge: {review.challenge} | Notes: {review.notes}"
 
-        falsifier_notes = f"Challenge: {challenge} | Notes: {notes}"
-
-        if approved:
+        if review.approved:
             return KernelVerdict(
                 claim_id=proposed_verdict.claim_id,
                 sign=proposed_verdict.sign,
                 reason=proposed_verdict.reason,
-                # Falsifier's confidence acts as a ceiling on the final confidence
-                confidence=min(proposed_verdict.confidence, confidence_in_approval),
+                # Falsifier confidence acts as a ceiling on the final confidence.
+                confidence=min(proposed_verdict.confidence, review.confidence_in_decision),
                 evidence=proposed_verdict.evidence,
                 falsifier_approved=True,
                 falsifier_notes=falsifier_notes,
             )
-        else:
-            # Map rejection_reason → UNCERTAIN vs CONTESTED
-            reason = (
-                EpistemicReason.CONTESTED
-                if rejection_reason == "active_disagreement"
-                else EpistemicReason.UNCERTAIN
-            )
-            return KernelVerdict(
-                claim_id=proposed_verdict.claim_id,
-                sign=TruthSign.UNCERTAIN,
-                reason=reason,
-                confidence=max(0.1, confidence_in_approval),
-                evidence=proposed_verdict.evidence,
-                falsifier_approved=False,
-                falsifier_notes=f"REJECTED ({rejection_reason}): {falsifier_notes}",
-            )
+
+        # Map rejection_reason → UNCERTAIN vs CONTESTED.
+        reason = (
+            EpistemicReason.CONTESTED
+            if review.rejection_reason == "active_disagreement"
+            else EpistemicReason.UNCERTAIN
+        )
+        return KernelVerdict(
+            claim_id=proposed_verdict.claim_id,
+            sign=TruthSign.UNCERTAIN,
+            reason=reason,
+            # This is confidence in the rejection decision itself, not confidence
+            # that approval was warranted. Do not invert or floor it.
+            confidence=review.confidence_in_decision,
+            evidence=proposed_verdict.evidence,
+            falsifier_approved=False,
+            falsifier_notes=(
+                f"REJECTED ({review.rejection_reason}): {falsifier_notes}"
+            ),
+        )
 
     def assert_was_called(self) -> None:
         """
