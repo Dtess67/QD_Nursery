@@ -13,8 +13,13 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import importlib.metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Sequence
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from qd import Evidence, EvidenceSource, Ledger, QDKernel
 
@@ -44,6 +49,38 @@ def _git_value(*args: str, default: str = "unknown") -> str:
         return result.stdout.strip() or default
     except (OSError, subprocess.CalledProcessError):
         return default
+
+
+def _command_value(command: Sequence[str], default: str = "unknown") -> str:
+    try:
+        result = subprocess.run(
+            list(command),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip() or result.stderr.strip() or default
+    except (OSError, subprocess.CalledProcessError):
+        return default
+
+
+def _package_version(distribution: str) -> str:
+    try:
+        return importlib_metadata.version(distribution)
+    except importlib_metadata.PackageNotFoundError:
+        return "not-installed"
+
+
+def _ollama_identity(model: str) -> dict[str, str]:
+    listing = _command_value(["ollama", "list"])
+    model_line = next(
+        (line.strip() for line in listing.splitlines() if line.strip().startswith(model)),
+        "not-found",
+    )
+    return {
+        "version": _command_value(["ollama", "--version"]),
+        "model_line": model_line,
+    }
 
 
 def _sha256_json(value: Any) -> str:
@@ -233,6 +270,26 @@ def verdict_payload(verdict: Any) -> dict[str, Any]:
     }
 
 
+def _extract_assessor_outcome(events: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if event.get("event_type") != "ASSESSOR_OUTPUT":
+            continue
+        payload = event.get("payload", {})
+        if payload.get("stage") != "funnel":
+            continue
+        trace = payload.get("funnel_trace", [])
+        return {
+            "sign": payload.get("sign"),
+            "reason": payload.get("reason"),
+            "confidence": payload.get("confidence"),
+            "evidence_count": payload.get("evidence_count"),
+            "explanations_initial": payload.get("explanations_initial"),
+            "explanations_surviving": payload.get("explanations_surviving"),
+            "funnel_trace_hash": _sha256_json(trace),
+        }
+    return None
+
+
 def _write_jsonl(path: Path, record: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
@@ -269,9 +326,9 @@ def execute_case(
         )
         record["status"] = "completed"
         record["verdict"] = verdict_payload(verdict)
-        record["ledger_events"] = (
-            ledger.get_run(verdict.run_id) if verdict.run_id else []
-        )
+        events = ledger.get_run(verdict.run_id) if verdict.run_id else []
+        record["ledger_events"] = events
+        record["assessor_outcome"] = _extract_assessor_outcome(events)
     except Exception as exc:  # benchmark must preserve failures as data
         record["status"] = "error"
         record["error"] = {
@@ -367,7 +424,8 @@ def summarize_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
     for case_id, case_records in sorted(by_case.items()):
         completed = [r for r in case_records if r.get("status") == "completed"]
         errors = [r for r in case_records if r.get("status") == "error"]
-        triples = Counter(
+
+        final_outcomes = Counter(
             (
                 r["verdict"]["sign"],
                 r["verdict"]["reason"],
@@ -376,12 +434,30 @@ def summarize_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
             )
             for r in completed
         )
+        assessor_outcomes = Counter(
+            (
+                r["assessor_outcome"]["sign"],
+                r["assessor_outcome"]["reason"],
+                round(float(r["assessor_outcome"]["confidence"]), 3),
+                r["assessor_outcome"]["explanations_initial"],
+                r["assessor_outcome"]["explanations_surviving"],
+                r["assessor_outcome"]["funnel_trace_hash"],
+            )
+            for r in completed
+            if r.get("assessor_outcome")
+        )
         confidence_values = [
             float(r["verdict"]["confidence"]) for r in completed
+        ]
+        assessor_confidences = [
+            float(r["assessor_outcome"]["confidence"])
+            for r in completed
+            if r.get("assessor_outcome")
         ]
         evidence_hashes = Counter(
             r["verdict"]["evidence_url_hash"] for r in completed
         )
+
         cases[case_id] = {
             "lane": case_records[0]["lane"],
             "dimension": case_records[0]["dimension"],
@@ -389,7 +465,7 @@ def summarize_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "attempted": len(case_records),
             "completed": len(completed),
             "errors": len(errors),
-            "distinct_outcomes": [
+            "distinct_final_outcomes": [
                 {
                     "sign": key[0],
                     "reason": key[1],
@@ -397,14 +473,40 @@ def summarize_records(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
                     "falsifier_approved": key[3],
                     "count": count,
                 }
-                for key, count in sorted(triples.items(), key=lambda item: str(item[0]))
+                for key, count in sorted(
+                    final_outcomes.items(), key=lambda item: str(item[0])
+                )
             ],
-            "confidence_min": min(confidence_values) if confidence_values else None,
-            "confidence_max": max(confidence_values) if confidence_values else None,
-            "confidence_mean": (
+            "distinct_assessor_outcomes": [
+                {
+                    "sign": key[0],
+                    "reason": key[1],
+                    "confidence": key[2],
+                    "explanations_initial": key[3],
+                    "explanations_surviving": key[4],
+                    "funnel_trace_hash": key[5],
+                    "count": count,
+                }
+                for key, count in sorted(
+                    assessor_outcomes.items(), key=lambda item: str(item[0])
+                )
+            ],
+            "final_confidence_min": (
+                min(confidence_values) if confidence_values else None
+            ),
+            "final_confidence_max": (
+                max(confidence_values) if confidence_values else None
+            ),
+            "final_confidence_mean": (
                 round(statistics.mean(confidence_values), 4)
                 if confidence_values
                 else None
+            ),
+            "assessor_confidence_min": (
+                min(assessor_confidences) if assessor_confidences else None
+            ),
+            "assessor_confidence_max": (
+                max(assessor_confidences) if assessor_confidences else None
             ),
             "distinct_evidence_sets": len(evidence_hashes),
             "evidence_set_counts": dict(evidence_hashes),
@@ -440,17 +542,18 @@ def summary_markdown(summary: dict[str, Any]) -> str:
         "",
         "This is descriptive baseline evidence. It does not certify correctness.",
         "",
-        "| Case | Lane | Dimension | Completed | Distinct outcomes | Confidence range | Evidence sets |",
-        "|---|---|---|---:|---:|---|---:|",
+        "| Case | Lane | Dimension | Completed | Assessor outcomes | Final outcomes | Final confidence | Evidence sets |",
+        "|---|---|---|---:|---:|---:|---|---:|",
     ]
     for case_id, case in summary["cases"].items():
-        low = case["confidence_min"]
-        high = case["confidence_max"]
+        low = case["final_confidence_min"]
+        high = case["final_confidence_max"]
         confidence = "n/a" if low is None else f"{low:.3f}–{high:.3f}"
         lines.append(
             f"| `{case_id}` | {case['lane']} | {case['dimension']} | "
             f"{case['completed']}/{case['attempted']} | "
-            f"{len(case['distinct_outcomes'])} | {confidence} | "
+            f"{len(case['distinct_assessor_outcomes'])} | "
+            f"{len(case['distinct_final_outcomes'])} | {confidence} | "
             f"{case['distinct_evidence_sets']} |"
         )
 
@@ -459,6 +562,7 @@ def summary_markdown(summary: dict[str, Any]) -> str:
             "",
             "## Interpretation guardrails",
             "",
+            "- Assessor outcomes expose funnel behavior even when the Falsifier later masks it.",
             "- Different live evidence-set hashes show retrieval variance, not automatically model inconsistency.",
             "- Different outcomes with one fixed evidence set show kernel/model variance.",
             "- Different outcomes across shuffle orders are evidence of possible path dependence.",
@@ -509,6 +613,13 @@ def create_manifest(
             "git_status_porcelain": _git_value(
                 "status", "--porcelain", default=""
             ),
+            "ollama": _ollama_identity(args.model),
+            "packages": {
+                "ollama": _package_version("ollama"),
+                "pydantic": _package_version("pydantic"),
+                "pytest": _package_version("pytest"),
+                "tavily-python": _package_version("tavily-python"),
+            },
             "tavily_api_key_present": bool(os.environ.get("TAVILY_API_KEY")),
         },
         "guardrail": (
