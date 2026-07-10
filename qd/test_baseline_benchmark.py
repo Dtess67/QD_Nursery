@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
 from benchmarks.baseline_v1 import (
     BENCHMARK_ID,
+    DEFAULT_CASES_PATH,
     FixedRetriever,
     duplicate_family_variants,
     load_live_cases,
@@ -33,6 +36,35 @@ def _item(url: str = "https://example.test/source") -> Evidence:
         confidence=0.8,
         source_tier=1,
     )
+
+
+def test_committed_manifest_covers_required_live_dimensions():
+    dimensions = {case["dimension"] for case in load_live_cases(DEFAULT_CASES_PATH)}
+
+    assert {
+        "simple_supported_fact",
+        "simple_false_claim",
+        "satire",
+        "quotation_without_endorsement",
+        "neutral_reporting",
+        "genuine_contested_claim",
+        "loaded_claim_wording",
+        "outdated_evidence",
+        "compound_claim",
+    } <= dimensions
+
+
+def test_runner_help_executes_as_a_script_from_repo_root():
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "benchmarks/baseline_v1.py", "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "pre-rearchitecture baseline" in result.stdout
 
 
 def test_live_case_manifest_is_valid_and_unique(tmp_path: Path):
