@@ -4,3 +4,4 @@ __pycache__/
 qd_ledger.db
 *.db
 .idea/
+benchmark_results/
