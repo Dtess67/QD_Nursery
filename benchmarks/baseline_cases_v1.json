@@ -1,0 +1,74 @@
+[
+  {
+    "id": "simple_supported_water",
+    "dimension": "simple_supported_fact",
+    "claim": "A water molecule is composed of hydrogen and oxygen.",
+    "submitted_confidence": 0.9,
+    "notes": "Simple, stable factual claim."
+  },
+  {
+    "id": "simple_refuted_flat_earth",
+    "dimension": "simple_false_claim",
+    "claim": "The Earth is flat.",
+    "submitted_confidence": 0.1,
+    "notes": "Simple false claim with known satire and quotation exposure in retrieval."
+  },
+  {
+    "id": "satire_fiction_turtle",
+    "dimension": "satire",
+    "claim": "The Earth rests on four elephants standing on a giant turtle.",
+    "submitted_confidence": 0.1,
+    "notes": "Likely to retrieve fictional, humorous, explanatory, or quoted mentions rather than endorsing evidence."
+  },
+  {
+    "id": "quotation_without_endorsement",
+    "dimension": "quotation_without_endorsement",
+    "claim": "Any article that quotes the sentence \"The Earth is flat\" endorses the flat-Earth claim.",
+    "submitted_confidence": 0.2,
+    "notes": "Tests whether lexical presence is confused with source endorsement."
+  },
+  {
+    "id": "neutral_reporting_rumor",
+    "dimension": "neutral_reporting",
+    "claim": "Reports discussing the rumor that Paul McCartney died in 1966 are evidence that he actually died in 1966.",
+    "submitted_confidence": 0.2,
+    "notes": "Separates reporting that a rumor exists from evidence that the rumor is true."
+  },
+  {
+    "id": "contested_alcohol_health",
+    "dimension": "genuine_contested_claim",
+    "claim": "Moderate alcohol consumption has net health benefits.",
+    "submitted_confidence": 0.5,
+    "notes": "Known mixed and changing evidence environment."
+  },
+  {
+    "id": "loaded_wording_neutral",
+    "dimension": "loaded_claim_wording",
+    "pair_id": "mmr_autism_wording",
+    "claim": "The MMR vaccine does not cause autism.",
+    "submitted_confidence": 0.8,
+    "notes": "Neutral wording member of a semantically aligned pair."
+  },
+  {
+    "id": "loaded_wording_prefaced",
+    "dimension": "loaded_claim_wording",
+    "pair_id": "mmr_autism_wording",
+    "claim": "Despite anti-vaccine claims, the MMR vaccine does not cause autism.",
+    "submitted_confidence": 0.8,
+    "notes": "Loaded preface with the same central proposition as the neutral pair member."
+  },
+  {
+    "id": "outdated_eiffel_tallest",
+    "dimension": "outdated_evidence",
+    "claim": "The Eiffel Tower is the tallest structure in the world.",
+    "submitted_confidence": 0.3,
+    "notes": "Historically true wording that is now false; probes stale evidence and source dates."
+  },
+  {
+    "id": "compound_eiffel",
+    "dimension": "compound_claim",
+    "claim": "The Eiffel Tower is in Paris and is the tallest structure in the world.",
+    "submitted_confidence": 0.5,
+    "notes": "One true clause plus one false clause; current kernel does not decompose claims."
+  }
+]

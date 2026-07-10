@@ -47,6 +47,21 @@ This exercises real retrieval and the local model. Live outputs vary with retrie
 
 The next required experiment is the current-kernel baseline benchmark listed in `qd_state.yaml`. The baseline must be recorded before the evidence-relation and dual-key verdict rearchitecture, so later changes can be compared against the machine that actually existed.
 
+## Baseline benchmark
+
+The benchmark runner has two lanes:
+
+- **Live:** repeated Qwen plus Tavily runs across the required claim categories.
+- **Controlled:** fixed evidence for duplicate-family and evidence-order probes.
+
+```powershell
+py benchmarks/baseline_v1.py --live-repeats 1 --controlled-repeats 1 --shuffle-limit 3
+```
+
+Generated artifacts are written under `benchmark_results/baseline_v1/` and are ignored by Git. See [`benchmarks/README.md`](benchmarks/README.md) before running the full baseline.
+
+The benchmark records current behavior. It does not certify correctness, and expected failures are not regressions.
+
 ## Project evidence classes
 
 The documents under `docs/` intentionally separate:
