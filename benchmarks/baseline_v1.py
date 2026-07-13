@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from qd import Evidence, EvidenceSource, Ledger, QDKernel
+from qd import Evidence, EvidenceSource, Ledger, QDKernel, SourceRelation
 
 
 BENCHMARK_ID = "baseline_v1"
@@ -125,7 +125,7 @@ def _evidence(
     content: str,
     url: str,
     *,
-    endorses: bool,
+    relation: SourceRelation,
     confidence: float = 0.8,
     tier: int = 1,
 ) -> Evidence:
@@ -133,7 +133,7 @@ def _evidence(
         content=content,
         source_url=url,
         source_type=EvidenceSource.EXTERNAL,
-        source_endorses_claim=endorses,
+        source_relation=relation,
         confidence=confidence,
         source_tier=tier,
     )
@@ -149,7 +149,8 @@ def duplicate_family_variants() -> list[dict[str, Any]]:
                 "is 100 degrees Celsius. Boiling temperature changes when pressure changes."
             ),
             "https://example.test/reference/water-boiling-point",
-            endorses=True,
+            # The excerpt itself asserts the claim's fact → SUPPORTS.
+            relation=SourceRelation.SUPPORTS,
             confidence=0.9,
         )
 
@@ -185,7 +186,9 @@ def shuffle_fixture() -> dict[str, Any]:
                 "during the six months after the city-wide curfew began."
             ),
             "https://example.test/city/police-after-curfew",
-            endorses=True,
+            # Fixture intent: the report asserts the decline followed the
+            # curfew, offered as support for the causal claim → SUPPORTS.
+            relation=SourceRelation.SUPPORTS,
             confidence=0.86,
         ),
         _evidence(
@@ -194,7 +197,9 @@ def shuffle_fixture() -> dict[str, Any]:
                 "16 percent during the same period, consistent with a regional trend."
             ),
             "https://example.test/university/regional-comparison",
-            endorses=False,
+            # Fixture intent: argues against the causal attribution
+            # (a regional trend explains the decline) → REFUTES.
+            relation=SourceRelation.REFUTES,
             confidence=0.84,
         ),
         _evidence(
@@ -203,7 +208,9 @@ def shuffle_fixture() -> dict[str, Any]:
                 "started, excluding several categories counted in the earlier period."
             ),
             "https://example.test/auditor/reporting-definition",
-            endorses=False,
+            # Fixture intent: argues the measured decline is a reporting
+            # artifact, i.e. the causal claim is false → REFUTES.
+            relation=SourceRelation.REFUTES,
             confidence=0.82,
         ),
     )
@@ -247,7 +254,7 @@ def verdict_payload(verdict: Any) -> dict[str, Any]:
             "content": item.content,
             "source_url": item.source_url,
             "source_type": item.source_type.value,
-            "source_endorses_claim": item.source_endorses_claim,
+            "source_relation": item.source_relation.value,
             "confidence": item.confidence,
             "source_tier": item.source_tier,
         }

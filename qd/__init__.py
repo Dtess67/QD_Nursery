@@ -1,6 +1,6 @@
 from .kernel import QDKernel
 from .schema import (
-    TruthSign, EpistemicReason, EvidenceSource,
+    TruthSign, EpistemicReason, EvidenceSource, SourceRelation,
     Evidence, Claim, AssessmentMessage, KernelVerdict,
 )
 from .evidence_policy import EvidencePolicy
@@ -15,11 +15,11 @@ from .exceptions import (
     EmergencyStopError,
 )
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 __all__ = [
     "QDKernel", "Retriever", "SourceTier",
-    "TruthSign", "EpistemicReason", "EvidenceSource",
+    "TruthSign", "EpistemicReason", "EvidenceSource", "SourceRelation",
     "Evidence", "Claim", "AssessmentMessage", "KernelVerdict",
     "EvidencePolicy",
     "Ledger", "EventType",

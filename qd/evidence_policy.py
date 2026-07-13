@@ -1,26 +1,32 @@
 from __future__ import annotations
 
-from .schema import Evidence, EvidenceSource, TruthSign, EpistemicReason
+from .schema import Evidence, EvidenceSource, SourceRelation, TruthSign, EpistemicReason
 from .exceptions import EvidencePolicyViolation
 
 
 class EvidencePolicy:
     """
-    Evidence Policy v0.2
+    Evidence Policy v0.3
 
     Symmetric. Model memory is not valid evidence in any direction.
 
-    Rule 1: SUPPORTED verdict  → supporting side must have external sources.
-    Rule 2: REFUTED verdict    → refuting side must have external sources.
+    Rule 1: SUPPORTED verdict  → at least one external SUPPORTS source.
+    Rule 2: REFUTED verdict    → at least one external REFUTES source.
     Rule 3: CONTESTED verdict  → BOTH sides checked independently.
     Rule 4: UNCERTAIN verdict  → no external evidence required.
                                  UNCERTAIN means we don't have enough — that's honest.
 
+    Sides are keyed on the four-state source relation. NEUTRAL and UNCLEAR
+    satisfy NEITHER side: a source that merely discusses the claim, quotes
+    it, or produced malformed classifier output is not support and is not
+    refutation. (The v0.2 Boolean compressed all of those into "refuting",
+    which let satire and quotation count as counter-evidence. Fixed here.)
+
     The asymmetry bug (v0.1 only checked the supporting side) meant model memory
-    could refute a claim without the gate firing. Fixed here.
+    could refute a claim without the gate firing. Fixed in v0.2.
     """
 
-    VERSION = "0.2"
+    VERSION = "0.3"
 
     @staticmethod
     def validate_for_verdict(
@@ -33,16 +39,16 @@ class EvidencePolicy:
         Raises EvidencePolicyViolation on failure.
         """
         if sign == TruthSign.SUPPORTED:
-            EvidencePolicy._validate_side(evidence, source_endorses_claim=True, label="supporting")
+            EvidencePolicy._validate_side(evidence, SourceRelation.SUPPORTS, label="supporting")
 
         elif sign == TruthSign.REFUTED:
-            EvidencePolicy._validate_side(evidence, source_endorses_claim=False, label="refuting")
+            EvidencePolicy._validate_side(evidence, SourceRelation.REFUTES, label="refuting")
 
         elif sign == TruthSign.UNCERTAIN and reason == EpistemicReason.CONTESTED:
             # Contested: credible sources actively disagree.
             # Both sides must have external sources — otherwise it's not a real contest.
-            EvidencePolicy._validate_side(evidence, source_endorses_claim=True,  label="supporting")
-            EvidencePolicy._validate_side(evidence, source_endorses_claim=False, label="refuting")
+            EvidencePolicy._validate_side(evidence, SourceRelation.SUPPORTS, label="supporting")
+            EvidencePolicy._validate_side(evidence, SourceRelation.REFUTES, label="refuting")
 
         # UNCERTAIN (not contested) — no external evidence required.
         # The kernel is saying "we don't know." That's not a claim. No source required.
@@ -66,12 +72,14 @@ class EvidencePolicy:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _validate_side(evidence: list[Evidence], source_endorses_claim: bool, label: str) -> None:
+    def _validate_side(evidence: list[Evidence], relation: SourceRelation, label: str) -> None:
         """
         Validate one side (supporting or refuting).
+        Only an explicit SUPPORTS/REFUTES relation places an item on a side —
+        NEUTRAL and UNCLEAR never count for either.
         Checks: side exists, no model memory, no missing URLs.
         """
-        side = [e for e in evidence if e.source_endorses_claim == source_endorses_claim]
+        side = [e for e in evidence if e.source_relation == relation]
 
         if not side:
             raise EvidencePolicyViolation(

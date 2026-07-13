@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .schema import (
-    Claim, Evidence, EvidenceSource,
+    Claim, Evidence, EvidenceSource, SourceRelation,
     AssessmentMessage, KernelVerdict,
     TruthSign, EpistemicReason,
 )
@@ -57,31 +57,57 @@ Rules:
 - Judge only against THIS evidence item. Do not import outside knowledge.
 - Use the exact explanation ids given to you.
 
-Also decide whether the source ENDORSES the claim — a strict test, not
-"is it about the topic":
+Return ONLY a JSON object with this exact shape:
 
-  source_endorses_claim: true ONLY if the source itself endorses or
-  concludes that the claim is true.
+{
+  "eliminated": ["id", ...],   // explanation ids this evidence contradicts (may be empty)
+  "note": "one sentence on what this evidence rules out and why"
+}
 
-  false if the source:
-   - denies the claim,
-   - argues against the claim,
-   - fact-checks the claim as false,
-   - quotes someone else making the claim without endorsing it,
-   - explains why people believe the claim,
-   - satirizes the claim,
-   - discusses the claim as a belief, rumor, theory, controversy, or
-     misinformation.
+Return ONLY the JSON object. No preamble."""
 
-  Do NOT mark true merely because the evidence mentions the claim,
+
+_RELATION_PROMPT = """You are the source-relation classifier in the QD kernel.
+
+You are given a claim and the text of ONE source. Your ONLY job is to decide
+what THIS SOURCE ITSELF says about THIS claim. You are describing the
+source's stance — you are NOT deciding whether the claim is actually true
+or false. That verdict is made elsewhere, by other means.
+
+Use exactly one of these four labels:
+
+  "supports" — the source itself directly asserts or concludes that the
+               claim is true.
+
+  "refutes"  — the source itself directly denies, corrects, or fact-checks
+               the claim as false.
+
+  "neutral"  — the source is relevant or discusses the topic, but takes no
+               side on the claim itself. This includes:
+                - quoting someone else making the claim without endorsing it,
+                - reporting on the claim as a belief, rumor, theory,
+                  controversy, or misinformation,
+                - attributing the claim to others,
+                - explaining why people believe the claim,
+                - discussing the topic without asserting the claim true or false.
+               Satire is "neutral" unless it clearly communicates that the
+               claim is false — in that case it is "refutes".
+
+  "unclear"  — the source text is insufficient, ambiguous, or too off-topic
+               to determine its stance.
+
+Rules:
+- Judge ONLY this source's own words against this claim. No outside knowledge.
+- Do NOT answer "supports" merely because the source mentions the claim,
   describes believers, or contains quoted language asserting the claim.
+- When you genuinely cannot decide, answer "unclear". Never guess "supports"
+  or "refutes".
 
 Return ONLY a JSON object with this exact shape:
 
 {
-  "eliminated": ["id", ...],             // explanation ids this evidence contradicts (may be empty)
-  "source_endorses_claim": true or false, // strict test above — endorsement, not topical relevance
-  "note": "one sentence on what this evidence rules out and why"
+  "source_relation": "supports" | "refutes" | "neutral" | "unclear",
+  "note": "one sentence on why"
 }
 
 Return ONLY the JSON object. No preamble."""
@@ -107,7 +133,7 @@ def _format_evidence_for_prompt(evidence: list[Evidence]) -> str:
 
 class QDKernel:
     """
-    The QD epistemic kernel. v0.1.2
+    The QD epistemic kernel. v0.1.4
 
     Constitutional layer. Newsroom, Carto, and any future QD-powered stacks
     derive their epistemic authority from this kernel — they do not replace it.
@@ -120,7 +146,7 @@ class QDKernel:
     Every epistemic event is recorded in the flight recorder ledger.
     """
 
-    VERSION = "0.1.3"
+    VERSION = "0.1.4"
 
     def __init__(
         self,
@@ -277,6 +303,10 @@ class QDKernel:
         """
         Assess the claim with an elimination funnel — not a single-shot guess.
 
+          0. Classify each source's relation to the claim in a CLEAN ROOM —
+             one claim, one evidence item, no hypothesis base, no other
+             sources, no prior labels. Runs before any funnel state exists,
+             so the boundary is structural, not prompt wording.
           1. Generate a WIDE base of plausible, polarity-tagged explanations.
           2. Use each evidence item to eliminate the explanations it contradicts.
              Evidence narrows the candidate set; it does not vote on a pre-picked
@@ -295,6 +325,21 @@ class QDKernel:
                 claim, run_id, "No evidence retrieved; funnel could not run."
             )
 
+        # Step 0: clean-room source-relation classification, BEFORE hypothesis
+        # generation or elimination. The relation label describes what each
+        # source says about the claim; it never decides the verdict.
+        evidence: list[Evidence] = []
+        for e in retrieved:
+            relation = self._classify_source_relation(claim, e, run_id)
+            evidence.append(Evidence(
+                content=e.content,
+                source_url=e.source_url,
+                source_type=EvidenceSource.EXTERNAL,
+                source_relation=relation,
+                confidence=e.confidence,
+                source_tier=e.source_tier,
+            ))
+
         # Step 1: wide base of competing explanations.
         base = self._generate_explanations(claim)
         if not base:
@@ -308,35 +353,11 @@ class QDKernel:
         # original base. Judging fresh evidence against already-dead candidates
         # is what collapsed real claims to 0 survivors / UNCERTAIN.
         eliminations: list[list[str]] = []
-        evidence:     list[Evidence]  = []
         alive:        list[_Explanation] = list(base)   # survivors so far
         for e in retrieved:
             elim = self._eliminate_with_evidence(claim, e, alive)
             hit  = [str(i) for i in elim.get("eliminated", [])]
             eliminations.append(hit)
-
-            # Strict endorsement read: only an explicit JSON boolean counts.
-            # Missing/malformed → NOT endorsement (absence of a clear
-            # endorsement is not endorsement) AND a visible ledger scar, so
-            # "the model said no" never looks like "the model returned garbage".
-            endorses, malformed = self._read_endorsement(elim)
-            if malformed:
-                self._log(run_id, claim.id, EventType.EVIDENCE_LABEL_SCAR, {
-                    "source_url": e.source_url,
-                    "raw_label":  repr(elim.get("source_endorses_claim"))[:200],
-                    "defaulted_to": "not_endorsing",
-                    "note": "Endorsement label missing or non-boolean; "
-                            "defaulted to NOT endorsing the claim.",
-                })
-
-            evidence.append(Evidence(
-                content=e.content,
-                source_url=e.source_url,
-                source_type=EvidenceSource.EXTERNAL,
-                source_endorses_claim=endorses,
-                confidence=e.confidence,
-                source_tier=e.source_tier,
-            ))
             # Narrow the live set before the NEXT evidence item sees it. Only
             # ids that are still alive can be removed (the id-safety guard).
             dead  = set(hit)
@@ -427,9 +448,8 @@ class QDKernel:
     ) -> dict:
         """LLM step 2 — one evidence item vs. the explanation base.
 
-        Returns the raw model dict ({"eliminated": [...],
-        "source_endorses_claim": bool, "note": str}). Narrowing itself is done
-        in pure Python by _run_funnel.
+        Returns the raw model dict ({"eliminated": [...], "note": str}).
+        Narrowing itself is done in pure Python by _run_funnel.
         """
         candidates = "\n".join(
             f"  [{h.id}] ({h.polarity.name}) {h.statement}" for h in base
@@ -448,22 +468,83 @@ class QDKernel:
             temperature=0.2,
         )
 
-    @staticmethod
-    def _read_endorsement(elim: dict) -> tuple[bool, bool]:
-        """Read the source-endorsement label from an elimination result.
+    def _classify_source_relation(
+        self,
+        claim:  Claim,
+        item:   Evidence,
+        run_id: str,
+    ) -> SourceRelation:
+        """Clean-room classification of one source's relation to the claim.
 
-        Returns (endorses, malformed). Only an explicit JSON boolean is
-        accepted — anything else (missing key, null, string "true", a number)
-        is NOT endorsement and is flagged malformed. This is deliberately
-        strict: for a truth-seeking kernel, absence of a clear endorsement must
-        never silently become evidence *for* the claim.
+        The model sees ONLY the claim text and this one evidence item's
+        content — no source URL, tier, or confidence; no hypothesis base; no
+        other sources; no prior labels; no funnel state. The July 8
+        investigation (diagnostics/archive/pre_four_state/) proved that
+        sharing context with the elimination step contaminates this label.
+
+        Every classification is ledgered. Malformed, missing, ambiguous, or
+        unparsable output becomes UNCLEAR — never SUPPORTS or REFUTES — and
+        additionally leaves an EVIDENCE_LABEL_SCAR, so "the model returned
+        garbage" never looks like a clean stance.
         """
-        raw = elim.get("source_endorses_claim")
-        if raw is True:
-            return True, False
-        if raw is False:
-            return False, False
-        return False, True
+        try:
+            result = self.ollama.complete_json(
+                system_prompt=_RELATION_PROMPT,
+                user_message=(
+                    f'Claim: "{claim.text}"\n\n'
+                    f"Source text:\n{item.content}\n\n"
+                    f"What is this source's relation to the claim?"
+                ),
+                temperature=0.2,
+            )
+            raw_label = result.get("source_relation") if isinstance(result, dict) else result
+            note      = str(result.get("note", ""))[:300] if isinstance(result, dict) else ""
+        except ModelResponseError as e:
+            # Unparsable model output is a classification failure, not a
+            # kernel failure. It must become UNCLEAR + scar, never a stance.
+            # (ModelUnavailableError still propagates — infrastructure
+            # failure is not a classification outcome.)
+            result    = {}
+            raw_label = f"<ModelResponseError: {str(e)[:150]}>"
+            note      = ""
+
+        relation, malformed = self._read_relation(result if isinstance(result, dict) else {})
+
+        self._log(run_id, claim.id, EventType.ASSESSOR_OUTPUT, {
+            "stage":      "source_relation",
+            "source_url": item.source_url,
+            "relation":   relation.value,
+            "note":       note,
+            "malformed":  malformed,
+        })
+        if malformed:
+            self._log(run_id, claim.id, EventType.EVIDENCE_LABEL_SCAR, {
+                "source_url":   item.source_url,
+                "raw_label":    repr(raw_label)[:200],
+                "defaulted_to": "unclear",
+                "note": "Source-relation label missing, malformed, or not one "
+                        "of supports/refutes/neutral/unclear; defaulted to UNCLEAR.",
+            })
+        return relation
+
+    @staticmethod
+    def _read_relation(payload: dict) -> tuple[SourceRelation, bool]:
+        """Read the source-relation label from a classifier result.
+
+        Returns (relation, malformed). Only a string token equal to one of
+        the four enum values — after trimming whitespace and normalizing
+        case — is accepted. Booleans, numbers, null, synonyms, and
+        approximate strings are all malformed and become UNCLEAR. This is
+        deliberately strict: for a truth-seeking kernel, garbage output must
+        never silently become a stance for or against the claim.
+        """
+        raw = payload.get("source_relation")
+        if isinstance(raw, str):
+            token = raw.strip().lower()
+            for relation in SourceRelation:
+                if token == relation.value:
+                    return relation, False
+        return SourceRelation.UNCLEAR, True
 
     @staticmethod
     def _run_funnel(
