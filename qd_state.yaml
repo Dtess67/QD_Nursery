@@ -1,4 +1,5 @@
-schema_version: 1
+﻿schema_version: 1
+
 project:
   name: QD_Nursery
   repository: Dtess67/QD_Nursery
@@ -6,8 +7,8 @@ project:
   canonical_state_file: qd_state.yaml
 
 state_as_of:
-  date: 2026-07-10
-  verified_against_commit: 9e80f28c4079f5f5ce64a30ced237ef36a532009
+  date: 2026-07-13
+  verified_against_commit: 1e7f6259a4af2e0fbed0a535d44c84325d212104
   verified_branch: main
   verification_environment: Windows, local repository, Python via py launcher
 
@@ -15,117 +16,190 @@ verification:
   deterministic_suite:
     command: py -m pytest -q
     result: pass
-    passed: 49
+    passed: 57
     failed: 0
-    duration_seconds: 11.02
+    duration_seconds: 11.98
     verified_by: Darrell Tessman
+
   live_kernel:
-    command: py test_kernel.py
-    current_funnel_status: pending_baseline_run
-    last_established_live_runs: pre-funnel, 2026-07-01
-    note: Funnel mechanics are deterministically tested; current Qwen plus Tavily end-to-end behavior is not yet established.
+    command: py benchmarks/baseline_v1.py
+    status: baseline_completed
+    run_id: 20260710T175347Z
+    records_attempted: 36
+    records_completed: 36
+    errors: 0
+    model: qwen2.5:32b
+    retrieval: Tavily
+    preserved_archive: docs/baselines/baseline_v1_20260710T175347Z.zip
+    archive_sha256: 82DF07B3A5DFE7F05112407395B440A0FDE036D8D922650991EED3CDC083375D
+    human_readable_record: docs/baselines/2026-07-10_baseline_v1.md
 
 merged_capabilities:
   - id: ternary_verdict
     status: merged
     statement: Every verdict carries sign, epistemic reason, and confidence.
+
   - id: required_falsifier
     status: merged
     statement: The Falsifier gate is structurally required.
+
   - id: strict_falsifier_contract
     status: merged
     statement: Falsifier output uses strict validation and decision-confidence semantics.
+
   - id: evidence_policy_v0_2
     status: merged
     statement: Evidence Policy is symmetric at the policy layer.
+
   - id: append_only_ledger
     status: merged
     statement: The SQLite flight-recorder ledger is append-only.
+
   - id: retrieval_and_tiering
     status: merged
     statement: Tavily retrieval applies domain-tier classification and filtering.
+
   - id: funnel_assessor_mechanics
     status: merged
-    statement: The Assessor generates a polarity-tagged base and narrows it across evidence.
+    statement: The Assessor generates a polarity-tagged hypothesis base and narrows it across evidence.
+
   - id: visible_scars
     status: merged
-    statement: Reconciliation and malformed-label corrections are ledgered as scars.
+    statement: Reconciliation and malformed-label corrections are ledgered rather than silently overwritten.
+
   - id: diagnostics
     status: merged
-    statement: Run-comparison and endorsement diagnostic tools are present.
+    statement: Run-comparison, endorsement diagnostics, and baseline benchmark instrumentation are present.
+
+  - id: baseline_benchmark_v1
+    status: completed
+    statement: Live and controlled pre-rearchitecture behavior was recorded in 36 of 36 evaluations with zero execution errors.
 
 recent_change:
-  pull_request: 1
-  merge_commit: 9e80f28c4079f5f5ce64a30ced237ef36a532009
-  result: Falsifier no longer accepts string booleans through Python truthiness; rejection confidence is no longer semantically inverted.
+  pull_request: 3
+  merge_commit: 1e7f6259a4af2e0fbed0a535d44c84325d212104
+  result: Added pre-rearchitecture live and controlled baseline instrumentation.
+
+baseline_findings:
+  - id: funnel_path_dependence
+    status: observed
+    statement: Permutations of one fixed three-item evidence set produced materially different Assessor outcomes.
+
+  - id: fixed_input_variance
+    status: observed
+    statement: Repeated controlled evaluations sometimes changed despite identical recorded evidence.
+
+  - id: retrieval_variance
+    status: observed
+    statement: Repeated live evaluations sometimes received different evidence sets.
+
+  - id: framing_sensitivity
+    status: observed
+    statement: Adding a loaded preface changed the MMR proposition from stable support to contested.
+
+  - id: confident_false_support
+    status: observed
+    statement: The Assessor confidently supported obvious false or fictional claims in live evaluations.
+
+  - id: confidence_not_calibrated
+    status: observed
+    statement: Confidence did not demonstrate stability; the alcohol claim received equal high confidence for opposite signs.
+
+  - id: falsifier_selectivity
+    status: uncalibrated
+    statement: The Falsifier rejected every live evaluation and varied across repeated controlled evaluations.
+
+  - id: duplicate_family_effect
+    status: not_demonstrated
+    statement: The single-versus-triplicate controlled fixture did not show duplicate-source confidence inflation.
 
 known_failures_and_unearned_claims:
   - id: evidence_relation_boolean
     status: open
     statement: source_endorses_claim compresses REFUTES, NEUTRAL, satire, quotation, and malformed output into false.
+
   - id: funnel_closed_world
+    status: confirmed_failure
+    statement: Survivor polarity cannot author a decisive verdict because the model-generated hypothesis base is non-exhaustive.
+
+  - id: funnel_verdict_authority
+    status: withdrawn
+    statement: Funnel convergence is diagnostic evidence only and does not earn authority to declare truth.
+
+  - id: confidence_formula
     status: open
-    statement: Survivor polarity can author a decisive verdict even though the generated hypothesis base is not exhaustive.
-  - id: confidence_inversion
-    status: open
-    statement: Same-polarity survivors can receive higher confidence when evidence eliminates nothing than a strongly narrowed funnel receives.
+    statement: Confidence is not calibrated to demonstrated stability, source independence, or measured reliability.
+
   - id: source_and_hypothesis_independence
     status: open
-    statement: Repeated sources and same-call hypothesis paraphrases are not yet collapsed into independent families.
-  - id: funnel_path_dependence
-    status: unmeasured
-    statement: Verdict stability under permutation of the same evidence set has not been tested.
+    statement: Source and hypothesis families are not yet structurally represented, though the baseline duplicate fixture did not demonstrate inflation.
+
   - id: ledger_replay_completeness
     status: open
-    statement: Ordinary run events do not yet preserve every raw prompt, model output, source stance, model version, temperature, and code commit needed for complete replay.
-  - id: retrieval_variance
-    status: observed
-    statement: Identical claims can receive materially different retrieved source sets; disclosure and stability handling are not yet resolved.
+    statement: Ordinary runs do not yet preserve every raw prompt, model output, source relation, model parameter, and code state needed for complete replay.
+
+  - id: conflict_origin_enum
+    status: rejected_before_build
+    statement: POSITIONAL or REASONING causal labels overclaim what access comparison and equalized reruns can establish.
 
 ratified_direction_not_yet_built:
   - id: four_state_source_relation
-    status: planned
+    status: next
     statement: Replace the Boolean relation with SUPPORTS, REFUTES, NEUTRAL, and UNCLEAR.
+
   - id: clean_room_relation_classifier
+    status: next
+    statement: Classify each source separately from hypothesis generation, other sources, and prior conclusions.
+
+  - id: auditable_diagnostic_funnel
     status: planned
-    statement: Classify source relation separately from hypothesis elimination.
-  - id: dual_key_verdict
+    statement: Preserve hypotheses and eliminating observations while withholding verdict authority from survivor polarity.
+
+  - id: disagreement_hypothesis_ledger
     status: planned
-    statement: Require source-family evidence and consistent funnel convergence for a decisive verdict.
-  - id: axis_disagreement_scar
-    status: planned
-    statement: Ledger disagreement between source-relation and funnel axes instead of silently resolving it.
+    statement: Record possible disagreement explanations as ELIMINATED, SURVIVING, or UNTESTED without appointing a cause.
+
   - id: confidence_redesign
     status: planned
-    statement: Base confidence on evidence work and demonstrated independence rather than raw survivor count.
+    statement: Confidence must be earned through measured calibration, stability, provenance, and demonstrated independence.
+
+  - id: source_family_identity
+    status: planned
+    statement: Collapse repeated or syndicated sources into evidence families before treating agreement as replication.
 
 next_gate:
-  id: baseline_benchmark_current_kernel
-  purpose: Record current behavior before epistemic rearchitecture so later changes can be compared against a real baseline.
+  id: four_state_clean_room_relation_v1
+  purpose: Determine what each source actually does relative to an atomic claim without contamination from hypotheses or other source conclusions.
+
   required_dimensions:
-    - simple supported fact
-    - simple false claim
-    - satire
-    - quotation without endorsement
+    - direct support
+    - direct refutation
     - neutral reporting
-    - genuine contested claim
-    - duplicate source families
-    - loaded claim wording
-    - outdated evidence
-    - compound claim
-    - shuffle stability of an identical evidence set
-  rule: Do not interpret expected failures as regressions; this run exists to document the current machine before surgery.
+    - quotation without endorsement
+    - satire and fiction
+    - unclear or insufficient context
+    - malformed model output
+    - polarity symmetry
+    - order independence
+    - repeated-run stability
+
+  rule: The classifier receives no verdict authority until deterministic and live benchmarks demonstrate that its labels are stable and auditable.
 
 build_freeze:
-  active: true
-  blocked_until_next_gate:
+  active: false
+  released_by: baseline_benchmark_current_kernel
+  released_on: 2026-07-10
+
+  still_parked:
     - idle recombination
     - minority live-claim lane
     - additional cognitive organs
     - rover cognition integration
-  allowed_work:
-    - state and reproducibility repair
-    - baseline benchmark instrumentation
-    - fixes required to make benchmark output trustworthy
+
+  current_allowed_scope:
+    - canonical state and documentation repair
+    - four-state source relation
+    - clean-room relation classifier
+    - tests and instrumentation required to evaluate that classifier
 
 maintenance_rule: Update this file whenever merged behavior, deterministic test results, live validation status, known failures, or the next experimental gate changes. Narrative documents must not contradict this file; disagreement is resolved by verification and then logged, never silently edited.

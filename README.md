@@ -1,4 +1,4 @@
-# QD Nursery
+﻿# QD Nursery
 
 QD_Nursery is the supervised research repository for QD's epistemic kernel. The current system retrieves external sources, narrows a generated hypothesis set, proposes a ternary verdict, routes it through a required adversarial Falsifier, and records the run in an append-only ledger.
 
@@ -33,7 +33,7 @@ $env:TAVILY_API_KEY='tvly-...'
 py -m pytest -q
 ```
 
-This is the mechanical regression gate. The verified result recorded on July 10, 2026 against commit `9e80f28` is **49 passed, 0 failed**.
+This is the mechanical regression gate. The verified post-baseline result is **57 passed, 0 failed**.
 
 A passing deterministic suite does **not** establish live Qwen plus Tavily behavior.
 
@@ -45,7 +45,7 @@ py test_kernel.py
 
 This exercises real retrieval and the local model. Live outputs vary with retrieval and model behavior. Preserve the ledger and treat the current run as experimental evidence, not a release certification.
 
-The next required experiment is the current-kernel baseline benchmark listed in `qd_state.yaml`. The baseline must be recorded before the evidence-relation and dual-key verdict rearchitecture, so later changes can be compared against the machine that actually existed.
+The pre-rearchitecture baseline is complete and preserved under `docs/baselines/`. The next experimental gate is the four-state, clean-room source-relation classifier recorded in `qd_state.yaml`.
 
 ## Baseline benchmark
 

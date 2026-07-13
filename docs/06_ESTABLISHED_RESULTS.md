@@ -74,3 +74,53 @@ were confirmed, not decided.**
   committed change is still owed before this is a kernel-level established
   result. Separate clean-room call (Test 1) also passed 6/6 and is retained
   as documented fallback.
+
+---
+
+## Pre-rearchitecture baseline v1 — July 10, 2026
+
+The current live Qwen + Tavily funnel was measured before epistemic
+rearchitecture.
+
+- Benchmark commit:
+  `1e7f6259a4af2e0fbed0a535d44c84325d212104`
+- Model: `qwen2.5:32b`
+- Evaluations completed: 36/36
+- Execution errors: 0
+- Deterministic suite after merge: 57/57 passed
+- Preserved record:
+  `docs/baselines/2026-07-10_baseline_v1.md`
+- Preserved archive:
+  `docs/baselines/baseline_v1_20260710T175347Z.zip`
+
+### Confirmed observations
+
+- Permuting one fixed three-item evidence set produced materially different
+  Assessor outcomes. The current funnel is evidence-order sensitive.
+- Some repeated controlled evaluations changed despite identical recorded
+  evidence, so retrieval variance cannot explain all observed instability.
+- Repeated live evaluations sometimes received different evidence sets.
+- The Assessor produced confident support for obvious false or fictional
+  claims.
+- The alcohol-health claim received equal high confidence for opposite
+  verdict signs.
+- Adding loaded framing changed the MMR proposition from stable support to
+  contested.
+- The Falsifier rejected every live evaluation and varied across repeated
+  controlled evaluations.
+- The single-versus-triplicate duplicate-source fixture produced essentially
+  unchanged confidence. Duplicate-source inflation was not demonstrated by
+  this test.
+
+### Scope of what is established
+
+The benchmark establishes that the funnel executes and exposes useful
+diagnostic behavior. It does not establish factual reliability.
+
+Survivor polarity has not earned authority to declare truth. The generated
+hypothesis base is non-exhaustive, and eliminating alternatives does not
+convert the final survivor into reality.
+
+The funnel remains available as an auditable diagnostic and
+possibility-generation instrument. Eliminated hypotheses and their
+eliminating observations must remain preserved.
