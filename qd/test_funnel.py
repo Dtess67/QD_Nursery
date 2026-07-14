@@ -19,7 +19,7 @@ import pytest
 
 from qd import (
     QDKernel, Ledger, EventType,
-    Claim, Evidence, EvidenceSource,
+    Claim, Evidence, EvidenceSource, SourceRelation,
     TruthSign, EpistemicReason,
     EvidencePolicy, EvidencePolicyViolation,
 )
@@ -55,15 +55,24 @@ def make_kernel(tmp_path, responses):
     return kernel, ledger
 
 
-def ev(url, content, supports=True, tier=1):
+def ev(url, content, relation=SourceRelation.SUPPORTS, tier=1):
     return Evidence(
         content=content,
         source_url=url,
         source_type=EvidenceSource.EXTERNAL,
-        source_endorses_claim=supports,
+        source_relation=relation,
         confidence=0.8,
         source_tier=tier,
     )
+
+
+def rel(token="neutral", note="n"):
+    """A scripted clean-room relation-classifier response.
+
+    _assess makes one of these calls per evidence item BEFORE the hypothesis
+    call, so queues are ordered: relations, hypothesis, eliminations.
+    """
+    return {"source_relation": token, "note": note}
 
 
 def exp(hid, polarity, statement="explanation"):
@@ -116,8 +125,10 @@ def test_elimination_calls_see_only_surviving_candidates(tmp_path):
     the final survivor count — because a stale, non-narrowing candidate list
     produces the right end state in some cases while still being the bug.
     """
-    # Base of 3: h1 supported, h2 refuted, h3 refuted (hypothesis call is faked).
+    # Queue order: one relation call per evidence item, then the hypothesis
+    # call. Base of 3: h1 supported, h2 refuted, h3 refuted.
     kernel, _ = make_kernel(tmp_path, [
+        rel(), rel(),
         {"explanations": [
             {"statement": "true",    "polarity": "supported"},
             {"statement": "false A", "polarity": "refuted"},
@@ -128,8 +139,8 @@ def test_elimination_calls_see_only_surviving_candidates(tmp_path):
     # Intercept the elimination step and record the candidate ids it was handed.
     seen_candidate_ids: list[list[str]] = []
     scripted = [
-        {"eliminated": ["h2"], "source_endorses_claim": True, "note": "evidence 1 kills h2"},
-        {"eliminated": [],     "source_endorses_claim": True, "note": "evidence 2 sees fewer"},
+        {"eliminated": ["h2"], "note": "evidence 1 kills h2"},
+        {"eliminated": [],     "note": "evidence 2 sees fewer"},
     ]
     step = {"i": 0}
 
@@ -155,21 +166,23 @@ def test_elimination_calls_see_only_surviving_candidates(tmp_path):
 def test_assess_end_to_end_narrows_across_two_evidence_items(tmp_path):
     """Full _assess path: a wide base of 3 shrinks to 1 as two evidence items land."""
     responses = [
+        rel(), rel(),
         {"explanations": [
             {"statement": "claim is true",          "polarity": "supported"},
             {"statement": "claim false, reason A",   "polarity": "refuted"},
             {"statement": "claim false, reason B",   "polarity": "refuted"},
         ]},
-        {"eliminated": ["h2"], "source_endorses_claim": True, "note": "rules out A"},
-        {"eliminated": ["h3"], "source_endorses_claim": True, "note": "rules out B"},
+        {"eliminated": ["h2"], "note": "rules out A"},
+        {"eliminated": ["h3"], "note": "rules out B"},
     ]
     kernel, ledger = make_kernel(tmp_path, responses)
     run_id = "run-narrow"
 
     kernel._assess(Claim(text="X"), [ev("http://a", "c1"), ev("http://b", "c2")], run_id)
 
-    # 1 hypothesis call + 1 elimination call per evidence item = 3 total.
-    assert len(kernel.ollama.calls) == 3
+    # 1 relation call per evidence item + 1 hypothesis call
+    # + 1 elimination call per evidence item = 5 total.
+    assert len(kernel.ollama.calls) == 5
 
     events = ledger.get_run(run_id)
     ao = [e for e in events if e["event_type"] == "ASSESSOR_OUTPUT"][-1]
@@ -276,6 +289,7 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
     """End-to-end mirror of the live bug: 5 hypotheses narrow to 2 survivors,
     both REFUTED. Must resolve to REFUTED (corroboration), not CONTESTED."""
     responses = [
+        rel("refutes"), rel("refutes"),
         {"explanations": [
             {"statement": "flat — no curvature visible",  "polarity": "supported"},
             {"statement": "flat — it's a conspiracy",      "polarity": "supported"},
@@ -285,11 +299,9 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
              "polarity": "refuted"},
         ]},
         # evidence 1 eliminates the three 'flat' (supported) hypotheses
-        {"eliminated": ["h1", "h2", "h4"], "source_endorses_claim": False,
-         "note": "imagery shows curvature"},
+        {"eliminated": ["h1", "h2", "h4"], "note": "imagery shows curvature"},
         # evidence 2 sees only h3, h5 (both refuted) and rules out neither
-        {"eliminated": [], "source_endorses_claim": False,
-         "note": "consistent with a round earth"},
+        {"eliminated": [], "note": "consistent with a round earth"},
     ]
     kernel, ledger = make_kernel(tmp_path, responses)
     a = kernel._assess(
@@ -315,11 +327,12 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
         # one survivor, supported
         (
             [
+                rel("supports"),
                 {"explanations": [
                     {"statement": "true", "polarity": "supported"},
                     {"statement": "false", "polarity": "refuted"},
                 ]},
-                {"eliminated": ["h2"], "source_endorses_claim": True, "note": "n"},
+                {"eliminated": ["h2"], "note": "n"},
             ],
             [("http://a", "c1")],
             TruthSign.SUPPORTED, EpistemicReason.SUPPORTED,
@@ -327,11 +340,12 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
         # one survivor, refuted
         (
             [
+                rel("refutes"),
                 {"explanations": [
                     {"statement": "true", "polarity": "supported"},
                     {"statement": "false", "polarity": "refuted"},
                 ]},
-                {"eliminated": ["h1"], "source_endorses_claim": False, "note": "n"},
+                {"eliminated": ["h1"], "note": "n"},
             ],
             [("http://a", "c1")],
             TruthSign.REFUTED, EpistemicReason.REFUTED,
@@ -339,12 +353,13 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
         # multiple survivors → contested
         (
             [
+                rel("supports"), rel("refutes"),
                 {"explanations": [
                     {"statement": "true", "polarity": "supported"},
                     {"statement": "false", "polarity": "refuted"},
                 ]},
-                {"eliminated": [], "source_endorses_claim": True, "note": "n"},
-                {"eliminated": [], "source_endorses_claim": False, "note": "n"},
+                {"eliminated": [], "note": "n"},
+                {"eliminated": [], "note": "n"},
             ],
             [("http://a", "c1"), ("http://b", "c2")],
             TruthSign.UNCERTAIN, EpistemicReason.CONTESTED,
@@ -352,11 +367,12 @@ def test_assess_earth_flat_multiple_refuted_survivors_is_refuted(tmp_path):
         # none survive → uncertain
         (
             [
+                rel("refutes"),
                 {"explanations": [
                     {"statement": "true", "polarity": "supported"},
                     {"statement": "false", "polarity": "refuted"},
                 ]},
-                {"eliminated": ["h1", "h2"], "source_endorses_claim": False, "note": "n"},
+                {"eliminated": ["h1", "h2"], "note": "n"},
             ],
             [("http://a", "c1")],
             TruthSign.UNCERTAIN, EpistemicReason.UNCERTAIN,
@@ -378,103 +394,115 @@ def test_assess_outcome_mappings_end_to_end(
     assert len(a.evidence) == len(retrieved)
 
 
-def test_assess_evidence_labels_follow_elimination_calls(tmp_path):
-    """The per-evidence source_endorses_claim flag flows from the elimination step."""
+def test_assess_evidence_relations_follow_classification_calls(tmp_path):
+    """The per-evidence source_relation flows from the clean-room classifier."""
     responses = [
+        rel("supports"), rel("refutes"),
         {"explanations": [
             {"statement": "true", "polarity": "supported"},
             {"statement": "false", "polarity": "refuted"},
         ]},
-        {"eliminated": ["h2"], "source_endorses_claim": True,  "note": "n"},
-        {"eliminated": [],     "source_endorses_claim": False, "note": "n"},
+        {"eliminated": ["h2"], "note": "n"},
+        {"eliminated": [],     "note": "n"},
     ]
     kernel, _ = make_kernel(tmp_path, responses)
     a = kernel._assess(Claim(text="X"), [ev("http://a", "c1"), ev("http://b", "c2")], "r")
 
-    assert [e.source_endorses_claim for e in a.evidence] == [True, False]
+    assert [e.source_relation for e in a.evidence] == [
+        SourceRelation.SUPPORTS, SourceRelation.REFUTES,
+    ]
     # evidence stays EXTERNAL with real urls preserved
     assert all(e.source_type == EvidenceSource.EXTERNAL for e in a.evidence)
     assert [e.source_url for e in a.evidence] == ["http://a", "http://b"]
 
 
 # --------------------------------------------------------------------------- #
-# Endorsement label: strict read, default-flip, and malformed → scar           #
+# Source-relation label: strict read, malformed → UNCLEAR + scar               #
 # --------------------------------------------------------------------------- #
 
-def test_read_endorsement_explicit_true():
-    assert QDKernel._read_endorsement({"source_endorses_claim": True}) == (True, False)
+@pytest.mark.parametrize("token, expected", [
+    ("supports", SourceRelation.SUPPORTS),
+    ("refutes",  SourceRelation.REFUTES),
+    ("neutral",  SourceRelation.NEUTRAL),
+    ("unclear",  SourceRelation.UNCLEAR),
+])
+def test_read_relation_accepts_each_valid_token(token, expected):
+    assert QDKernel._read_relation({"source_relation": token}) == (expected, False)
 
 
-def test_read_endorsement_explicit_false():
-    assert QDKernel._read_endorsement({"source_endorses_claim": False}) == (False, False)
-
-
-@pytest.mark.parametrize("elim", [
+@pytest.mark.parametrize("payload", [
     {},                                        # missing key
-    {"source_endorses_claim": None},           # null
-    {"source_endorses_claim": "true"},         # string, not bool
-    {"source_endorses_claim": 1},              # number, not bool
-    {"supports_claim": True},                  # old key name → now missing
-], ids=["missing", "null", "string", "number", "old-key"])
-def test_read_endorsement_malformed_defaults_to_not_endorsing(elim):
-    endorses, malformed = QDKernel._read_endorsement(elim)
-    assert endorses is False        # absence of clear endorsement is NOT endorsement
+    {"source_relation": None},                 # null
+    {"source_relation": True},                 # old-contract boolean
+    {"source_relation": False},                # old-contract boolean
+    {"source_relation": 1},                    # number
+    {"source_relation": "endorses"},           # synonym
+    {"source_relation": "support"},            # approximate string
+    {"source_endorses_claim": True},           # retired key name → now missing
+], ids=["missing", "null", "bool-true", "bool-false", "number",
+        "synonym", "approximate", "old-key"])
+def test_read_relation_malformed_defaults_to_unclear(payload):
+    relation, malformed = QDKernel._read_relation(payload)
+    # Garbage must never become a stance for or against the claim.
+    assert relation is SourceRelation.UNCLEAR
     assert malformed is True
 
 
-def test_assess_malformed_endorsement_logs_scar_and_defaults_false(tmp_path):
-    # Elimination result omits the endorsement label entirely.
+def test_assess_malformed_relation_logs_scar_and_defaults_unclear(tmp_path):
+    # Classifier result omits the relation label entirely.
     responses = [
+        {"note": "no relation field at all"},
         {"explanations": [
             {"statement": "true",  "polarity": "supported"},
             {"statement": "false", "polarity": "refuted"},
         ]},
-        {"eliminated": ["h1"], "note": "no endorsement field at all"},
+        {"eliminated": ["h1"], "note": "n"},
     ]
     kernel, ledger = make_kernel(tmp_path, responses)
     a = kernel._assess(Claim(text="X"), [ev("http://a", "c1")], "run-scar")
 
-    # Missing label must NOT become endorsement.
-    assert a.evidence[0].source_endorses_claim is False
+    # Missing label must become UNCLEAR — never SUPPORTS or REFUTES.
+    assert a.evidence[0].source_relation is SourceRelation.UNCLEAR
     # And it must be visible in the ledger as an evidence-label scar.
     events = ledger.get_run("run-scar")
     scars = [e for e in events if e["event_type"] == "EVIDENCE_LABEL_SCAR"]
     assert len(scars) == 1
     assert scars[0]["payload"]["source_url"] == "http://a"
-    assert scars[0]["payload"]["defaulted_to"] == "not_endorsing"
+    assert scars[0]["payload"]["defaulted_to"] == "unclear"
 
 
 def test_assess_explicit_labels_do_not_log_scar(tmp_path):
-    # "The model clearly said no" must NOT look like "the model returned garbage".
+    # "The model clearly said refutes" must NOT look like "the model returned garbage".
     responses = [
+        rel("refutes", "explicit no"),
         {"explanations": [
             {"statement": "true",  "polarity": "supported"},
             {"statement": "false", "polarity": "refuted"},
         ]},
-        {"eliminated": ["h1"], "source_endorses_claim": False, "note": "explicit no"},
+        {"eliminated": ["h1"], "note": "n"},
     ]
     kernel, ledger = make_kernel(tmp_path, responses)
     a = kernel._assess(Claim(text="X"), [ev("http://a", "c1")], "run-clean")
 
-    assert a.evidence[0].source_endorses_claim is False
+    assert a.evidence[0].source_relation is SourceRelation.REFUTES
     events = ledger.get_run("run-clean")
     assert not [e for e in events if e["event_type"] == "EVIDENCE_LABEL_SCAR"]
 
 
-def test_evidence_field_renamed_and_read_by_policy_and_falsifier():
-    # Read-site smoke check: the renamed field is what Evidence Policy filters on.
-    endorsing = ev("http://a", "c", supports=True)
-    opposing  = ev("http://b", "c", supports=False)
-    assert endorsing.source_endorses_claim is True
-    assert opposing.source_endorses_claim is False
-    # SUPPORTED needs an endorsing external source — passes with one present…
+def test_evidence_relation_field_read_by_policy():
+    # Read-site smoke check: the four-state field is what Evidence Policy filters on.
+    supporting = ev("http://a", "c", relation=SourceRelation.SUPPORTS)
+    refuting   = ev("http://b", "c", relation=SourceRelation.REFUTES)
+    assert supporting.source_relation is SourceRelation.SUPPORTS
+    assert refuting.source_relation is SourceRelation.REFUTES
+    # SUPPORTED needs a SUPPORTS external source — passes with one present…
     EvidencePolicy.validate_for_verdict(
-        [endorsing], TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
+        [supporting], TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
     )
-    # …and fires when only opposing evidence exists (policy read the new field).
+    # …and fires when only refuting evidence exists (policy read the new field).
     with pytest.raises(EvidencePolicyViolation):
         EvidencePolicy.validate_for_verdict(
-            [opposing], TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
+            [refuting], TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
         )
 
 
@@ -493,13 +521,13 @@ def test_assess_no_evidence_is_uncertain_without_calling_model(tmp_path):
 
 
 def test_assess_empty_hypothesis_base_is_uncertain(tmp_path):
-    kernel, _ = make_kernel(tmp_path, [{"explanations": []}])
+    kernel, _ = make_kernel(tmp_path, [rel(), {"explanations": []}])
     a = kernel._assess(Claim(text="X"), [ev("http://a", "c1")], "run-nohyp")
 
     assert a.proposed_sign == TruthSign.UNCERTAIN
     assert a.proposed_reason == EpistemicReason.UNCERTAIN
-    # only the hypothesis call happened; no elimination calls without a base
-    assert len(kernel.ollama.calls) == 1
+    # one relation call + the hypothesis call; no elimination calls without a base
+    assert len(kernel.ollama.calls) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -507,8 +535,8 @@ def test_assess_empty_hypothesis_base_is_uncertain(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def test_evidence_policy_symmetric_supported_requires_supporting_source():
-    # SUPPORTED verdict but every item opposes the claim → violation
-    evidence = [ev("http://a", "c", supports=False)]
+    # SUPPORTED verdict but every item refutes the claim → violation
+    evidence = [ev("http://a", "c", relation=SourceRelation.REFUTES)]
     with pytest.raises(EvidencePolicyViolation):
         EvidencePolicy.validate_for_verdict(
             evidence, TruthSign.SUPPORTED, EpistemicReason.SUPPORTED
@@ -521,7 +549,7 @@ def test_evidence_policy_symmetric_refuted_rejects_model_memory():
         content="I recall this is false",
         source_url=None,
         source_type=EvidenceSource.MODEL_MEMORY,
-        source_endorses_claim=False,
+        source_relation=SourceRelation.REFUTES,
         confidence=0.5,
     )
     with pytest.raises(EvidencePolicyViolation):
@@ -531,7 +559,7 @@ def test_evidence_policy_symmetric_refuted_rejects_model_memory():
 
 
 def test_evidence_policy_contested_requires_both_sides():
-    one_sided = [ev("http://a", "c", supports=True)]
+    one_sided = [ev("http://a", "c", relation=SourceRelation.SUPPORTS)]
     with pytest.raises(EvidencePolicyViolation):
         EvidencePolicy.validate_for_verdict(
             one_sided, TruthSign.UNCERTAIN, EpistemicReason.CONTESTED
@@ -539,7 +567,7 @@ def test_evidence_policy_contested_requires_both_sides():
 
 
 def test_evidence_policy_supported_passes_with_external_source():
-    good = [ev("http://a", "c", supports=True)]
+    good = [ev("http://a", "c", relation=SourceRelation.SUPPORTS)]
     # should not raise
     EvidencePolicy.validate_for_verdict(good, TruthSign.SUPPORTED, EpistemicReason.SUPPORTED)
 
@@ -576,11 +604,12 @@ def test_ledger_records_reconcile_scar(tmp_path):
 
 def test_assess_logs_assessor_output_to_ledger(tmp_path):
     responses = [
+        rel("supports"),
         {"explanations": [
             {"statement": "true", "polarity": "supported"},
             {"statement": "false", "polarity": "refuted"},
         ]},
-        {"eliminated": ["h2"], "source_endorses_claim": True, "note": "n"},
+        {"eliminated": ["h2"], "note": "n"},
     ]
     kernel, ledger = make_kernel(tmp_path, responses)
     kernel._assess(Claim(text="X"), [ev("http://a", "c1")], "run-log")

@@ -8,18 +8,18 @@ project:
 
 state_as_of:
   date: 2026-07-13
-  verified_against_commit: 1e7f6259a4af2e0fbed0a535d44c84325d212104
-  verified_branch: main
+  verified_against_commit: 2b09409c276658fd8ac56adb1c407b1ff4db6c88
+  verified_branch: q/four-state-source-relation
   verification_environment: Windows, local repository, Python via py launcher
 
 verification:
   deterministic_suite:
     command: py -m pytest -q
     result: pass
-    passed: 57
+    passed: 92
     failed: 0
-    duration_seconds: 11.98
-    verified_by: Darrell Tessman
+    duration_seconds: 23.61
+    verified_by: Claude Fable 5 (automated local run, reviewed by Darrell Tessman)
 
   live_kernel:
     command: py benchmarks/baseline_v1.py
@@ -69,16 +69,24 @@ merged_capabilities:
 
   - id: diagnostics
     status: merged
-    statement: Run-comparison, endorsement diagnostics, and baseline benchmark instrumentation are present.
+    statement: Run-comparison and baseline benchmark instrumentation are present. The Boolean-era endorsement diagnostics are preserved unchanged as historical evidence under diagnostics/archive/pre_four_state.
+
+  - id: four_state_source_relation
+    status: merged
+    statement: Evidence carries a four-state source relation (SUPPORTS, REFUTES, NEUTRAL, UNCLEAR) describing what one source says about one claim; it never decides the verdict. Malformed, missing, or unparsable classifier output becomes UNCLEAR with an EVIDENCE_LABEL_SCAR, never a stance.
+
+  - id: clean_room_relation_classifier
+    status: merged
+    statement: Each source is classified in a separate model call carrying only the claim text and that one source's content, before hypothesis generation or elimination begins. Every classification is ledgered as ASSESSOR_OUTPUT stage source_relation.
 
   - id: baseline_benchmark_v1
     status: completed
     statement: Live and controlled pre-rearchitecture behavior was recorded in 36 of 36 evaluations with zero execution errors.
 
 recent_change:
-  pull_request: 3
-  merge_commit: 1e7f6259a4af2e0fbed0a535d44c84325d212104
-  result: Added pre-rearchitecture live and controlled baseline instrumentation.
+  pull_request: pending (branch q/four-state-source-relation)
+  merge_commit: pending
+  result: Replaced the Boolean evidence label with the four-state clean-room source relation (kernel v0.1.4, Evidence Policy v0.3).
 
 baseline_findings:
   - id: funnel_path_dependence
@@ -115,8 +123,8 @@ baseline_findings:
 
 known_failures_and_unearned_claims:
   - id: evidence_relation_boolean
-    status: open
-    statement: source_endorses_claim compresses REFUTES, NEUTRAL, satire, quotation, and malformed output into false.
+    status: resolved
+    statement: source_endorses_claim compressed REFUTES, NEUTRAL, satire, quotation, and malformed output into false. Replaced by the four-state source relation; NEUTRAL and UNCLEAR satisfy neither Evidence Policy side, and malformed output becomes UNCLEAR plus a scar. Live label quality remains gated by four_state_clean_room_relation_v1.
 
   - id: funnel_closed_world
     status: confirmed_failure
@@ -143,14 +151,6 @@ known_failures_and_unearned_claims:
     statement: POSITIONAL or REASONING causal labels overclaim what access comparison and equalized reruns can establish.
 
 ratified_direction_not_yet_built:
-  - id: four_state_source_relation
-    status: next
-    statement: Replace the Boolean relation with SUPPORTS, REFUTES, NEUTRAL, and UNCLEAR.
-
-  - id: clean_room_relation_classifier
-    status: next
-    statement: Classify each source separately from hypothesis generation, other sources, and prior conclusions.
-
   - id: auditable_diagnostic_funnel
     status: planned
     statement: Preserve hypotheses and eliminating observations while withholding verdict authority from survivor polarity.
@@ -184,6 +184,14 @@ next_gate:
     - repeated-run stability
 
   rule: The classifier receives no verdict authority until deterministic and live benchmarks demonstrate that its labels are stable and auditable.
+
+  result:
+    date: 2026-07-13
+    deterministic: pass
+    deterministic_evidence: 92-test suite covers all four relations, quotation, rumor, both satire cases, explicit denial, malformed and missing and unparsable output defaulting to UNCLEAR with scars, polarity-symmetric policy sides, the structural clean-room boundary, and verdict independence of the labels.
+    live: not_yet_run
+    live_remaining: order independence, repeated-run stability, and live label quality on real retrieved sources have not been measured.
+    verdict_authority: withheld
 
 build_freeze:
   active: false

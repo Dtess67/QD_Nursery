@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 import uuid
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _utcnow() -> datetime:
@@ -30,12 +30,34 @@ class EvidenceSource(str, Enum):
     MODEL_MEMORY = "model_memory"  # LLM training data — not valid evidence
 
 
+class SourceRelation(str, Enum):
+    """What ONE source says about ONE claim.
+
+    This label describes the source's own stance toward the claim. It never
+    decides the final truth verdict — that authority stays with the kernel's
+    verdict path.
+
+    Malformed, missing, ambiguous, or unparsable classifier output must
+    always become UNCLEAR, never SUPPORTS or REFUTES.
+    """
+    SUPPORTS = "supports"   # the source itself asserts/concludes the claim is true
+    REFUTES  = "refutes"    # the source itself denies, corrects, or fact-checks the claim as false
+    NEUTRAL  = "neutral"    # relevant / discusses the topic but takes no side
+                            # (quotation without endorsement, rumor discussion, attribution)
+    UNCLEAR  = "unclear"    # cannot be determined: insufficient context, ambiguity,
+                            # or malformed/missing classifier output
+
+
 class Evidence(BaseModel):
+    # extra="forbid": constructing with the retired Boolean field
+    # (source_endorses_claim) must be a hard error, never silently ignored.
+    model_config = ConfigDict(extra="forbid")
+
     id:             str            = Field(default_factory=lambda: str(uuid.uuid4()))
-    content:               str
-    source_url:            Optional[str]  = None
-    source_type:           EvidenceSource
-    source_endorses_claim: bool
+    content:         str
+    source_url:      Optional[str] = None
+    source_type:     EvidenceSource
+    source_relation: SourceRelation   # required — every construction site must take a stance
     confidence:     float          = Field(ge=0.0, le=1.0, default=0.5)
     source_tier:    Optional[int]  = None   # 1=authoritative .. 4=social/low-trust; None=not classified
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from tavily import TavilyClient
 
-from .schema import Evidence, EvidenceSource
+from .schema import Evidence, EvidenceSource, SourceRelation
 from .exceptions import KernelRuntimeError
 from .source_quality import SourceTier, classify_domain, adjusted_confidence, TIER_LABELS
 
@@ -87,7 +87,9 @@ class Retriever:
                 content=content[:500],
                 source_url=url,
                 source_type=EvidenceSource.EXTERNAL,
-                source_endorses_claim=True,   # assessor reclassifies — see kernel._assess()
+                # Not yet classified. UNCLEAR is the only honest placeholder —
+                # the kernel's clean-room classifier assigns the real relation.
+                source_relation=SourceRelation.UNCLEAR,
                 confidence=adjusted_confidence(raw_score, tier),
                 source_tier=tier.value,
             ))

@@ -52,6 +52,13 @@ Return ONLY a JSON object with these exact fields:
   "notes": "additional concerns"
 }
 
+Each evidence item carries a source-relation label: SUPPORTS, REFUTES,
+NEUTRAL, or UNCLEAR. The label describes that ONE source's own stance toward
+the claim — it is NOT a truth verdict. NEUTRAL means the source discusses the
+topic without taking a side; UNCLEAR means its stance could not be determined.
+Neither NEUTRAL nor UNCLEAR is opposing evidence — never treat them as if
+they refuted (or supported) the claim.
+
 Rules:
 - You are not a rubber stamp
 - confidence_in_decision means confidence in the decision you actually returned:
@@ -187,7 +194,7 @@ class Falsifier:
         proposed:   KernelVerdict,
     ) -> str:
         evidence_lines = "\n".join(
-            f"  [{i+1}] {'SUPPORTING' if e.source_endorses_claim else 'OPPOSING'}: "
+            f"  [{i+1}] {e.source_relation.value.upper()}: "
             f"{e.content[:300]} "
             f"(source: {e.source_url or 'NONE'}, type: {e.source_type.value}, "
             f"tier: {e.source_tier or 'unclassified'})"

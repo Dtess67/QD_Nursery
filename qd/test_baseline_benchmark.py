@@ -23,6 +23,7 @@ from qd import (
     Evidence,
     EvidenceSource,
     KernelVerdict,
+    SourceRelation,
     TruthSign,
 )
 
@@ -32,7 +33,7 @@ def _item(url: str = "https://example.test/source") -> Evidence:
         content="Controlled evidence excerpt.",
         source_url=url,
         source_type=EvidenceSource.EXTERNAL,
-        source_endorses_claim=True,
+        source_relation=SourceRelation.SUPPORTS,
         confidence=0.8,
         source_tier=1,
     )
@@ -108,10 +109,10 @@ def test_fixed_retriever_returns_deep_copies():
 
     first, _ = retriever.fetch("claim")
     second, _ = retriever.fetch("claim")
-    first[0].source_endorses_claim = False
+    first[0].source_relation = SourceRelation.REFUTES
 
-    assert original.source_endorses_claim is True
-    assert second[0].source_endorses_claim is True
+    assert original.source_relation is SourceRelation.SUPPORTS
+    assert second[0].source_relation is SourceRelation.SUPPORTS
 
 
 def test_controlled_variants_cover_duplicate_and_all_shuffle_orders():

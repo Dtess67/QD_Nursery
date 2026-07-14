@@ -8,6 +8,7 @@ from qd.schema import (
     Evidence,
     EvidenceSource,
     KernelVerdict,
+    SourceRelation,
     TruthSign,
     EpistemicReason,
 )
@@ -26,7 +27,7 @@ def supporting_evidence() -> Evidence:
         content="A primary source supports the claim.",
         source_url="https://example.gov/source",
         source_type=EvidenceSource.EXTERNAL,
-        source_endorses_claim=True,
+        source_relation=SourceRelation.SUPPORTS,
         confidence=0.9,
         source_tier=1,
     )
